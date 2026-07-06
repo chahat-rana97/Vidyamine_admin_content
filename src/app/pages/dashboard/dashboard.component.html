@@ -1,0 +1,688 @@
+
+<div class="dashboard">
+  <div class="dashboard-shell">
+
+    <!-- Hero -->
+    <section class="card hero-card">
+      <div class="hero-copy">
+        <div class="page-title-row">
+          <span class="wave-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+              <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+            </svg>
+          </span>
+          <div>
+            <span class="eyebrow">Content Operations Dashboard</span>
+            <h1 class="page-title">{{ greeting }}, {{ firstName }}</h1>
+            <p class="page-subtitle">
+              A cleaner snapshot of boards, books, chapters, topics, screenshots, and team activity.
+            </p>
+          </div>
+        </div>
+
+        <div class="hero-chips">
+          <span class="hero-chip">{{ boards.length }} boards</span>
+          <span class="hero-chip">{{ books.length }} books</span>
+          <span class="hero-chip">{{ chapters.length }} chapters</span>
+          <span class="hero-chip">{{ topics.length }} topics</span>
+        </div>
+      </div>
+
+      <div class="hero-side">
+        <span class="date-badge">{{ today | date:'EEE, MMM d yyyy' }}</span>
+
+        <div class="hero-quick-links">
+          <a routerLink="/boards" class="hero-link">
+            <span>Boards</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </a>
+          <a routerLink="/books" class="hero-link">
+            <span>Books</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </a>
+          <a routerLink="/chapters" class="hero-link">
+            <span>Chapters</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </a>
+        </div>
+
+        <div class="hero-insight">
+          <div class="hero-insight-head">
+            <span>Chapter verification</span>
+            <strong>{{ verificationPct }}%</strong>
+          </div>
+          <div class="hero-insight-sub">
+            {{ verificationVerified }} of {{ verificationTotal }} chapters confirmed accurate
+          </div>
+          <div class="hero-insight-bar">
+            <div class="hero-insight-fill" [style.width.%]="verificationPct"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <ng-container *ngIf="!loading; else skeletonTpl">
+
+      <!-- KPI Stat Cards -->
+      <div class="stats-row">
+        <a class="stat-card" *ngFor="let s of stats" [routerLink]="s.route">
+          <span class="stat-accent stat-accent--{{ s.accent }}"></span>
+          <div class="stat-top-row">
+            <span class="stat-label">{{ s.label }}</span>
+            <span class="stat-trend" *ngIf="s.trend !== undefined" [class.stat-trend--down]="s.trend < 0" [class.stat-trend--flat]="s.trend === 0">
+              <svg *ngIf="s.trend > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+              <svg *ngIf="s.trend < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
+              {{ s.trend > 0 ? '+' : '' }}{{ s.trend }}%
+            </span>
+          </div>
+          <span class="stat-value">{{ s.value }}</span>
+          <span class="stat-sub">{{ s.sub }}</span>
+          <svg class="stat-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+
+      <!-- Pipeline -->
+      <div class="panel-block">
+        <div class="panel-block-header">
+          <div class="panel-title-group">
+            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+            </svg>
+            <h2>Content Pipeline</h2>
+          </div>
+          <span class="panel-hint">From raw structure to screenshot-backed topics</span>
+        </div>
+
+        <div class="card funnel-card">
+          <div class="funnel">
+            <ng-container *ngFor="let stage of funnel; let last = last">
+              <a class="funnel-stage" [routerLink]="stage.route">
+                <div class="funnel-bar-track">
+                  <div
+                    class="funnel-bar-fill"
+                    [style.background]="stage.color"
+                    [style.width.%]="funnel[0].value ? (stage.value / funnel[0].value * 100) : 0"
+                  ></div>
+                </div>
+                <div class="funnel-meta">
+                  <span class="funnel-value" [style.color]="stage.color">{{ stage.value }}</span>
+                  <span class="funnel-label">{{ stage.label }}</span>
+                </div>
+              </a>
+              <div class="funnel-connector" *ngIf="!last">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m9 18 6-6-6-6"/>
+                </svg>
+              </div>
+            </ng-container>
+          </div>
+        </div>
+      </div>
+
+      <!-- Growth Trend -->
+      <div class="panel-block">
+        <div class="panel-block-header">
+          <div class="panel-title-group">
+            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+            </svg>
+            <h2>Content Growth</h2>
+          </div>
+          <div class="range-toggle">
+            <button class="range-btn" [class.range-btn--active]="trendRange === '6m'" (click)="setTrendRange('6m')">6 months</button>
+            <button class="range-btn" [class.range-btn--active]="trendRange === '12m'" (click)="setTrendRange('12m')">12 months</button>
+          </div>
+        </div>
+
+        <div class="card trend-card">
+          <div class="trend-summary">
+            <div class="trend-summary-item">
+              <span class="trend-dot" style="background:#f59e0b"></span>
+              <div>
+                <span class="trend-summary-label">Books</span>
+                <div class="trend-summary-row">
+                  <span class="trend-summary-value">{{ trendTotals.books }}</span>
+                  <span class="trend-badge" [class.trend-badge--down]="trendGrowthPct.books < 0" [class.trend-badge--flat]="trendGrowthPct.books === 0">
+                    <svg *ngIf="trendGrowthPct.books > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    <svg *ngIf="trendGrowthPct.books < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
+                    {{ trendGrowthPct.books > 0 ? '+' : '' }}{{ trendGrowthPct.books }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="trend-summary-item">
+              <span class="trend-dot" style="background:#14b8a6"></span>
+              <div>
+                <span class="trend-summary-label">Chapters</span>
+                <div class="trend-summary-row">
+                  <span class="trend-summary-value">{{ trendTotals.chapters }}</span>
+                  <span class="trend-badge" [class.trend-badge--down]="trendGrowthPct.chapters < 0" [class.trend-badge--flat]="trendGrowthPct.chapters === 0">
+                    <svg *ngIf="trendGrowthPct.chapters > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    <svg *ngIf="trendGrowthPct.chapters < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
+                    {{ trendGrowthPct.chapters > 0 ? '+' : '' }}{{ trendGrowthPct.chapters }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="trend-summary-item">
+              <span class="trend-dot" style="background:#a855f7"></span>
+              <div>
+                <span class="trend-summary-label">Topics</span>
+                <div class="trend-summary-row">
+                  <span class="trend-summary-value">{{ trendTotals.topics }}</span>
+                  <span class="trend-badge" [class.trend-badge--down]="trendGrowthPct.topics < 0" [class.trend-badge--flat]="trendGrowthPct.topics === 0">
+                    <svg *ngIf="trendGrowthPct.topics > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    <svg *ngIf="trendGrowthPct.topics < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
+                    {{ trendGrowthPct.topics > 0 ? '+' : '' }}{{ trendGrowthPct.topics }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="trend-chart-wrap" *ngIf="trendPoints.length">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="trend-svg">
+              <line *ngFor="let g of [0,25,50,75,100]" x1="0" [attr.y1]="g" x2="100" [attr.y2]="g" class="trend-gridline" />
+
+              <defs>
+                <linearGradient id="fillBooks" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="fillChapters" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#14b8a6" stop-opacity="0.22"/>
+                  <stop offset="100%" stop-color="#14b8a6" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="fillTopics" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#a855f7" stop-opacity="0.2"/>
+                  <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+
+              <polygon [attr.points]="trendAreaPoints('books')" fill="url(#fillBooks)" />
+              <polygon [attr.points]="trendAreaPoints('chapters')" fill="url(#fillChapters)" />
+              <polygon [attr.points]="trendAreaPoints('topics')" fill="url(#fillTopics)" />
+
+              <polyline [attr.points]="trendLinePoints('chapters')" fill="none" stroke="#14b8a6" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />
+              <polyline [attr.points]="trendLinePoints('topics')" fill="none" stroke="#a855f7" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />
+              <polyline [attr.points]="trendLinePoints('books')" fill="none" stroke="#f59e0b" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+
+          <div class="trend-axis" *ngIf="trendPoints.length">
+            <span *ngFor="let p of trendPoints">{{ p.label }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Boards vs Publishers Comparison -->
+      <div class="panel-block" *ngIf="boardVsPublisherComparison.length">
+        <div class="panel-block-header">
+          <div class="panel-title-group">
+            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
+            </svg>
+            <h2>Boards vs Publishers</h2>
+          </div>
+          <span class="panel-hint">Top 5 by book count, side by side</span>
+        </div>
+
+        <div class="card comparison-card">
+          <div class="comparison-legend">
+            <span class="comparison-legend-item"><span class="legend-dot" style="background:#6366f1"></span> Top Boards</span>
+            <span class="comparison-legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Top Publishers</span>
+          </div>
+
+          <div class="comparison-rows">
+            <div class="comparison-row" *ngFor="let row of boardVsPublisherComparison; let i = index">
+              <span class="comparison-rank">{{ i + 1 }}</span>
+              <div class="comparison-bars">
+                <div class="comparison-bar-track comparison-bar-track--left">
+                  <div class="comparison-bar-fill comparison-bar-fill--boards" [style.width.%]="row.aPct"></div>
+                  <span class="comparison-bar-value">{{ row.a }}</span>
+                </div>
+                <div class="comparison-bar-track comparison-bar-track--right">
+                  <div class="comparison-bar-fill comparison-bar-fill--publishers" [style.width.%]="row.bPct"></div>
+                  <span class="comparison-bar-value">{{ row.b }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="comparison-names">
+            <div class="comparison-names-col">
+              <span *ngFor="let row of boardBars.slice(0,5)" [title]="row.label">{{ row.label }}</span>
+            </div>
+            <div class="comparison-names-col comparison-names-col--right">
+              <span *ngFor="let row of publisherBars.slice(0,5)" [title]="row.label">{{ row.label }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Month-over-month snapshot -->
+      <div class="panel-block">
+        <div class="panel-block-header">
+          <div class="panel-title-group">
+            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>
+            </svg>
+            <h2>This Month vs Last Month</h2>
+          </div>
+        </div>
+
+        <div class="mom-grid">
+          <div class="card mom-card" *ngFor="let m of monthComparison">
+            <div class="mom-card-head">
+              <span class="mom-label">{{ m.label }}</span>
+              <span class="mom-delta" [class.mom-delta--down]="m.deltaPct < 0" [class.mom-delta--flat]="m.deltaPct === 0">
+                <svg *ngIf="m.deltaPct > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                <svg *ngIf="m.deltaPct < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
+                {{ m.deltaPct > 0 ? '+' : '' }}{{ m.deltaPct }}%
+              </span>
+            </div>
+            <div class="mom-bars">
+              <div class="mom-bar-group">
+                <div class="mom-bar-track">
+                  <div class="mom-bar-fill mom-bar-fill--current" [style.height.%]="monthComparison.length ? (m.thisMonth / (max2(m.thisMonth, m.lastMonth) || 1) * 100) : 0"></div>
+                </div>
+                <span class="mom-bar-value">{{ m.thisMonth }}</span>
+                <span class="mom-bar-caption">This month</span>
+              </div>
+              <div class="mom-bar-group">
+                <div class="mom-bar-track">
+                  <div class="mom-bar-fill mom-bar-fill--prev" [style.height.%]="monthComparison.length ? (m.lastMonth / (max2(m.thisMonth, m.lastMonth) || 1) * 100) : 0"></div>
+                </div>
+                <span class="mom-bar-value">{{ m.lastMonth }}</span>
+                <span class="mom-bar-caption">Last month</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Insights -->
+      <div class="analytics-grid">
+        <div class="card panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              <h4>Team by Role</h4>
+            </div>
+            <a routerLink="/admin-users" class="panel-link">Manage
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+
+          <div class="donut-wrap">
+            <svg viewBox="0 0 42 42" class="donut-svg">
+              <circle cx="21" cy="21" r="15.9155" class="donut-track" />
+              <circle
+                *ngFor="let slice of roleDonut"
+                cx="21" cy="21" r="15.9155"
+                class="donut-slice"
+                [style.stroke]="slice.color"
+                [attr.stroke-dasharray]="ringDashArray(slice.dashLength)"
+                [attr.stroke-dashoffset]="slice.dashOffset"
+              />
+            </svg>
+            <div class="donut-center">
+              <span class="donut-total">{{ users.length }}</span>
+              <span class="donut-total-label">users</span>
+            </div>
+          </div>
+
+          <div class="donut-legend">
+            <div class="legend-row" *ngFor="let slice of roleDonut">
+              <span class="legend-dot" [style.background]="slice.color"></span>
+              <span class="legend-label">{{ slice.label }}</span>
+              <span class="legend-value">{{ slice.value }} · {{ slice.pct }}%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 12 2 2 4-4"/>
+                <path d="M12 3c-1.2 0-2.4.6-3 1.7A3.6 3.6 0 0 0 4.7 9c-1.1.6-1.7 1.8-1.7 3s.6 2.4 1.7 3A3.6 3.6 0 0 0 9 19.3c.6 1.1 1.8 1.7 3 1.7s2.4-.6 3-1.7A3.6 3.6 0 0 0 19.3 15c1.1-.6 1.7-1.8 1.7-3s-.6-2.4-1.7-3A3.6 3.6 0 0 0 15 4.7c-.6-1.1-1.8-1.7-3-1.7Z"/>
+              </svg>
+              <h4>Chapter Verification</h4>
+            </div>
+            <a routerLink="/chapters" class="panel-link">View
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+
+          <div class="progress-ring-wrap">
+            <svg viewBox="0 0 120 120" class="progress-ring-svg">
+              <circle cx="60" cy="60" r="52" class="progress-ring-track" />
+              <circle
+                cx="60" cy="60" r="52"
+                class="progress-ring-fill"
+                [style.stroke-dasharray]="(verificationPct * 3.2673) + ' 1000'"
+              />
+            </svg>
+            <div class="progress-ring-center">
+              <span class="progress-ring-pct">{{ verificationPct }}%</span>
+              <span class="progress-ring-label">verified</span>
+            </div>
+          </div>
+
+          <div class="progress-footer">
+            {{ verificationVerified }} of {{ verificationTotal }} chapters confirmed accurate
+          </div>
+
+          <div class="mini-metric-row">
+            <div class="mini-metric">
+              <div class="mini-metric-top">
+                <span class="mini-metric-label">Screenshot coverage</span>
+                <span class="mini-metric-value">{{ screenshotCoveragePct }}%</span>
+              </div>
+              <div class="mini-metric-bar-track">
+                <div class="mini-metric-bar-fill" [style.width.%]="screenshotCoveragePct"></div>
+              </div>
+            </div>
+
+            <div class="mini-metric">
+              <div class="mini-metric-top">
+                <span class="mini-metric-label">Books active</span>
+                <span class="mini-metric-value">{{ activeBooksPct }}%</span>
+              </div>
+              <div class="mini-metric-bar-track">
+                <div class="mini-metric-bar-fill mini-metric-bar-fill--green" [style.width.%]="activeBooksPct"></div>
+              </div>
+            </div>
+
+            <div class="mini-metric">
+              <div class="mini-metric-top">
+                <span class="mini-metric-label">Audio eligible</span>
+                <span class="mini-metric-value">{{ audioEligiblePct }}%</span>
+              </div>
+              <div class="mini-metric-bar-track">
+                <div class="mini-metric-bar-fill mini-metric-bar-fill--amber" [style.width.%]="audioEligiblePct"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Library health -->
+      <div class="analytics-grid">
+        <div class="card panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="9" rx="1"/>
+                <rect x="14" y="3" width="7" height="5" rx="1"/>
+                <rect x="14" y="12" width="7" height="9" rx="1"/>
+                <rect x="3" y="16" width="7" height="5" rx="1"/>
+              </svg>
+              <h4>Books by Board</h4>
+            </div>
+            <a routerLink="/boards" class="panel-link">View
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+
+          <div class="ranked-list" *ngIf="boardBars.length; else emptyBars">
+            <div class="ranked-row" *ngFor="let row of boardBars">
+              <span class="ranked-num">{{ row.rank }}</span>
+              <div class="ranked-body">
+                <div class="ranked-top">
+                  <span class="ranked-label" [title]="row.label">{{ row.label }}</span>
+                  <span class="ranked-value">{{ row.value }}</span>
+                </div>
+                <div class="ranked-track">
+                  <div class="ranked-fill" [style.width.%]="row.pct" [style.background]="row.color"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+              </svg>
+              <h4>Books by Publisher</h4>
+            </div>
+            <a routerLink="/publishers" class="panel-link">View
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+
+          <div class="ranked-list" *ngIf="publisherBars.length; else emptyPublishers">
+            <div class="ranked-row" *ngFor="let row of publisherBars">
+              <span class="ranked-num">{{ row.rank }}</span>
+              <div class="ranked-body">
+                <div class="ranked-top">
+                  <span class="ranked-label" [title]="row.label">{{ row.label }}</span>
+                  <span class="ranked-value">{{ row.value }}</span>
+                </div>
+                <div class="ranked-track">
+                  <div class="ranked-fill" [style.width.%]="row.pct" [style.background]="row.color"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <ng-template #emptyPublishers>
+            <div class="empty-hint">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+              </svg>
+              <span>No publishers added yet</span>
+            </div>
+          </ng-template>
+        </div>
+      </div>
+
+      <!-- Activity -->
+      <div class="analytics-grid analytics-grid--wide">
+        <div class="card panel" *ngIf="isAdminOrAbove">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>
+              </svg>
+              <h4>Recent Activity</h4>
+            </div>
+            <span class="panel-hint">Who touched what, last</span>
+          </div>
+
+          <div class="filter-pills">
+            <button class="pill" [class.pill--active]="activityFilter === 'all'" (click)="setActivityFilter('all')">
+              All <span class="pill-count">{{ activityCounts.all }}</span>
+            </button>
+            <button class="pill" [class.pill--active]="activityFilter === 'book'" (click)="setActivityFilter('book')">
+              Books <span class="pill-count">{{ activityCounts.book }}</span>
+            </button>
+            <button class="pill" [class.pill--active]="activityFilter === 'chapter'" (click)="setActivityFilter('chapter')">
+              Chapters <span class="pill-count">{{ activityCounts.chapter }}</span>
+            </button>
+            <button class="pill" [class.pill--active]="activityFilter === 'topic'" (click)="setActivityFilter('topic')">
+              Topics <span class="pill-count">{{ activityCounts.topic }}</span>
+            </button>
+          </div>
+
+          <div class="activity-list" *ngIf="activityFeed.length; else emptyActivity">
+            <div class="activity-row" *ngFor="let item of activityFeed">
+              <span class="activity-icon activity-icon--{{ item.kind }}">
+                <svg *ngIf="item.kind === 'book'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+                <svg *ngIf="item.kind === 'chapter'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/>
+                </svg>
+                <svg *ngIf="item.kind === 'topic'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m12 3 1.9 4.5L18 9l-4.1 1.5L12 15l-1.9-4.5L6 9l4.1-1.5L12 3z"/>
+                </svg>
+                <svg *ngIf="item.kind === 'user'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+              </span>
+              <div class="activity-text">
+                <span class="activity-who">{{ item.who }}</span>
+                <span class="activity-action">{{ item.action }}</span>
+                <span class="activity-what">{{ item.what }}</span>
+              </div>
+              <span class="activity-time">{{ timeAgo(item.when) }}</span>
+            </div>
+          </div>
+
+          <ng-template #emptyActivity>
+            <div class="empty-hint">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>
+              </svg>
+              <span>No tracked activity yet — this fills in as your team creates and edits content</span>
+            </div>
+          </ng-template>
+        </div>
+
+        <div class="card panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+              </svg>
+              <h4>Top Boards by Chapters</h4>
+            </div>
+          </div>
+
+          <div class="ranked-list" *ngIf="topBoardsByChapters.length; else emptyBars">
+            <div class="ranked-row" *ngFor="let row of topBoardsByChapters">
+              <span class="ranked-num">{{ row.rank }}</span>
+              <div class="ranked-body">
+                <div class="ranked-top">
+                  <span class="ranked-label" [title]="row.label">{{ row.label }}</span>
+                  <span class="ranked-value">{{ row.value }}</span>
+                </div>
+                <div class="ranked-track">
+                  <div class="ranked-fill" [style.width.%]="row.pct" [style.background]="row.color"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent users -->
+      <div class="panel-block" *ngIf="recentUsers.length">
+        <div class="panel-block-header">
+          <div class="panel-title-group">
+            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <h2>Recent Admin Users</h2>
+          </div>
+          <a routerLink="/admin-users" class="btn btn-ghost btn-sm">
+            View all
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </a>
+        </div>
+
+        <div class="card table-card">
+          <table class="vm-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let u of recentUsers; let i = index">
+                <td class="text-muted">{{ i + 1 }}</td>
+                <td>
+                  <div class="user-row">
+                    <div class="mini-avatar">{{ u.name?.[0]?.toUpperCase() }}</div>
+                    <div class="user-name-block">
+                      <span class="user-name">{{ u.name }}</span>
+                      <span class="user-meta">{{ u.created_at ? (timeAgo(u.created_at) + ' joined') : 'Recently added' }}</span>
+                    </div>
+                  </div>
+                </td>
+                <td class="text-secondary">{{ u.email }}</td>
+                <td><span class="badge badge-accent">{{ u.role }}</span></td>
+                <td>
+                  <span class="badge" [ngClass]="u.is_active ? 'badge-success' : 'badge-muted'">
+                    {{ u.is_active ? 'Active' : 'Inactive' }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </ng-container>
+
+    <!-- Error -->
+    <div class="card error-state" *ngIf="!loading && loadError">
+      <p>Couldn't load dashboard data. Check your connection and try refreshing.</p>
+    </div>
+
+    <!-- Skeleton -->
+    <ng-template #skeletonTpl>
+      <div class="stats-row">
+        <div class="stat-card skeleton" *ngFor="let i of [1,2,3,4,5,6]">
+          <div class="sk-box" style="width:70px;height:11px;margin-bottom:10px"></div>
+          <div class="sk-box" style="width:50px;height:26px;margin-bottom:8px"></div>
+          <div class="sk-box" style="width:80px;height:11px"></div>
+        </div>
+      </div>
+      <div class="analytics-grid">
+        <div class="card panel skeleton" style="height:280px"></div>
+        <div class="card panel skeleton" style="height:280px"></div>
+      </div>
+    </ng-template>
+
+    <ng-template #emptyBars>
+      <div class="empty-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+        </svg>
+        <span>No data yet</span>
+      </div>
+    </ng-template>
+
+  </div>
+</div>

@@ -1,0 +1,499 @@
+<!-- ============================================================ -->
+<!-- LIST VIEW -->
+<!-- ============================================================ -->
+<div class="page-wrap" *ngIf="!formMode">
+
+  <!-- Stats Row -->
+  <div class="stats-row stats-row--5">
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--total"><span class="icon-glyph">▤</span></div>
+      <div>
+        <div class="stat-value">{{ statsTotal }}</div>
+        <div class="stat-label">Total Chapters</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--active"><span class="icon-glyph">✓</span></div>
+      <div>
+        <div class="stat-value">{{ statsActive }}</div>
+        <div class="stat-label">Active Chapters</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--purple"><span class="icon-glyph">✦</span></div>
+      <div>
+        <div class="stat-value">{{ statsVerified }}</div>
+        <div class="stat-label">Verified</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--inactive"><span class="icon-glyph">⊘</span></div>
+      <div>
+        <div class="stat-value">{{ statsInactive }}</div>
+        <div class="stat-label">Inactive</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--orange"><span class="icon-glyph">▥</span></div>
+      <div>
+        <div class="stat-value">{{ statsBooksInView }}</div>
+        <div class="stat-label">Books in View</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <div class="filter-field filter-field--sm">
+      <label>BOARD</label>
+      <select class="filter-select" [(ngModel)]="filterBoardId" (ngModelChange)="onFilterBoardChange()">
+        <option value="">All Boards</option>
+        <option *ngFor="let b of boards" [value]="b.id">{{ b.name || b.code }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field filter-field--sm">
+      <label>CLASS</label>
+      <select class="filter-select" [(ngModel)]="filterClassId" (ngModelChange)="onFilterClassChange()">
+        <option value="">All Classes</option>
+        <option *ngFor="let c of filterClassOptions" [value]="c.id">{{ classOptionLabel(c) }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field filter-field--sm">
+      <label>SUBJECT</label>
+      <select class="filter-select" [(ngModel)]="filterSubjectId" (ngModelChange)="onFilterSubjectChange()">
+        <option value="">All Subjects</option>
+        <option *ngFor="let s of filterSubjectOptions" [value]="s.id">{{ s.name }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field filter-field--book-sm">
+      <label>BOOK</label>
+      <select class="filter-select" [(ngModel)]="filterBookId" (ngModelChange)="onFilterChange()">
+        <option value="">All Books</option>
+        <option *ngFor="let b of filterBookOptions" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+      </select>
+    </div>
+
+    <div class="filter-field filter-field--sm">
+      <label>STATUS</label>
+      <select class="filter-select" [(ngModel)]="filterStatus" (ngModelChange)="load()">
+        <option value="">All</option>
+        <option value="1">Active</option>
+        <option value="0">Inactive</option>
+      </select>
+    </div>
+
+    <div class="filter-field filter-field--xs">
+      <label>SEQUENCE</label>
+      <select class="filter-select" [(ngModel)]="filterSequence" (ngModelChange)="applyFilter()">
+        <option value="">All</option>
+        <option *ngFor="let s of sequenceOptions" [value]="s">{{ s }}</option>
+      </select>
+    </div>
+
+    <div class="search-field">
+      <label>&nbsp;</label>
+      <div class="search-bar">
+        <span class="search-icon">⌕</span>
+        <input type="text" [(ngModel)]="search" (input)="applyFilter()"
+               placeholder="Search by chapter code, name, book code, file name..." />
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-add" (click)="goToAdd()" *ngIf="canWrite">
+      <span class="btn-icon">+</span> Add Chapter
+    </button>
+  </div>
+
+  <!-- Table Card -->
+  <div class="table-card" *ngIf="!loading && !loadingLookups; else loadingTpl">
+    <div class="table-card-header">
+      <div>
+        <div class="table-title">All Chapters ({{ chapters.length }})</div>
+        <div class="table-subtitle">Search and sequence filters update instantly</div>
+      </div>
+      <div class="table-count-pill">Showing {{ filtered.length }} of {{ chapters.length }}</div>
+    </div>
+
+    <div class="table-scroll" *ngIf="filtered.length; else empty">
+      <table class="vm-table">
+        <thead>
+          <tr>
+            <th class="col-idx">#</th>
+            <th class="col-bseq">BOOK SEQ</th>
+            <th class="col-bookcode">BOOK CODE</th>
+            <th class="col-seq">SEQ</th>
+            <th class="col-chaptercode">CHAPTER CODE</th>
+            <th class="col-name">NAME</th>
+            <th class="col-abb">ABB</th>
+            <th class="col-confidence">CONFIDENCE</th>
+            <th class="col-filename">FILE NAME</th>
+            <th class="col-bookname">BOOK NAME</th>
+            <th class="col-checkedby">CHECKED BY</th>
+            <th>STATUS</th>
+            <th *ngIf="canViewAudit">CREATED BY</th>
+            <th *ngIf="canViewAudit">UPDATED BY</th>
+            <th *ngIf="canWrite" class="col-actions">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let c of filtered; let i = index">
+            <td class="idx">{{ i + 1 }}</td>
+
+            <td class="center">
+              <span class="seq-badge">{{ c.book_seq_no ?? '-' }}</span>
+            </td>
+
+            <td>
+              <code class="code-pill code-pill--highlight">{{ c.book_code || bookCode(c.book_id) || '-' }}</code>
+            </td>
+
+            <td class="center">
+              <span class="seq-pill">{{ c.sequence }}</span>
+            </td>
+
+            <td>
+              <code class="chapter-code-pill chapter-code-pill--highlight">{{ c.chapter_code }}</code>
+            </td>
+
+            <td>
+              <div class="entity-name">{{ c.name || '-' }}</div>
+            </td>
+
+            <td>
+              <span class="badge-abb" *ngIf="c.abbreviation">{{ c.abbreviation }}</span>
+              <span class="text-muted" *ngIf="!c.abbreviation">—</span>
+            </td>
+
+            <td>
+              <span class="badge-conf" [ngClass]="c.confidence === 'Verified' ? 'badge-conf--v' : 'badge-conf--u'">
+                {{ c.confidence || 'Unverified' }}
+              </span>
+            </td>
+
+            <td class="text-muted font-mono">
+              <span
+                class="pdf-filename-link"
+                *ngIf="c.file_name"
+                (click)="openPdfViewer(c.file_name)"
+                title="Click to view PDF"
+              >{{ pdfDisplayName(c.file_name) }}</span>
+              <span *ngIf="!c.file_name">—</span>
+            </td>
+
+            <td class="text-muted">{{ c.book_name || bookName(c.book_id) || '-' }}</td>
+
+            <td class="text-muted">{{ c.checked_by || '—' }}</td>
+
+            <td>
+              <button
+                class="status-toggle-badge"
+                [ngClass]="isActive(c) ? 'status-active' : 'status-inactive'"
+                (click)="toggleStatus(c)"
+                [title]="isActive(c) ? 'Click to deactivate' : 'Click to activate'"
+              >
+                {{ isActive(c) ? 'Active' : 'Inactive' }}
+              </button>
+            </td>
+
+            <td class="text-muted" *ngIf="canViewAudit">{{ c.created_by || '—' }}</td>
+            <td class="text-muted" *ngIf="canViewAudit">{{ c.updated_by || '—' }}</td>
+
+            <td *ngIf="canWrite">
+              <div class="action-btns">
+                <button class="btn btn-topics btn-sm" (click)="goToTopics(c)" title="Manage Topics">🗂 Topics</button>
+                <button class="btn btn-edit btn-sm" (click)="goToEdit(c)">Edit</button>
+                <button
+                  class="btn btn-danger btn-sm"
+                  (click)="confirmDelete(c)"
+                  *ngIf="auth.user?.role === 'superadmin' || auth.user?.role === 'admin'"
+                >Delete</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ng-template #empty>
+      <div class="empty-state">
+        <div class="empty-icon">▤</div>
+        <p>No chapters found{{ search ? ' for "' + search + '"' : '' }}</p>
+        <button class="btn btn-primary btn-sm" (click)="goToAdd()" *ngIf="canWrite">
+          Add First Chapter
+        </button>
+      </div>
+    </ng-template>
+  </div>
+
+  <ng-template #loadingTpl>
+    <div class="table-card loading-card">
+      <div class="spinner"></div>
+      <span>Loading chapters...</span>
+    </div>
+  </ng-template>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- DELETE CONFIRM MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay" *ngIf="deleteConfirm" (click)="deleteConfirm = null">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-icon">⚠</div>
+    <div class="modal-title">Delete Chapter?</div>
+    <div class="modal-desc">
+      "<strong>{{ deleteConfirm?.name }}</strong>" will be permanently deleted.
+      This action cannot be undone.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" (click)="deleteConfirm = null">Cancel</button>
+      <button class="btn btn-danger" (click)="doDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- ADD / EDIT FORM -->
+<!-- ============================================================ -->
+<div class="page-form-wrapper" *ngIf="formMode">
+
+  <div class="page-form-header">
+    <button class="page-form-header-back" (click)="goToList()" title="Back to list">
+      <span>‹</span>
+    </button>
+    <div>
+      <span class="page-form-title">
+        {{ formMode === 'edit' ? 'Edit Chapter: ' + (form.name || '') : 'Add New Chapter' }}
+      </span>
+      <div class="page-form-subtitle">
+        {{ formMode === 'edit' ? 'Update chapter details below.' : 'Create a new chapter entry.' }}
+      </div>
+    </div>
+  </div>
+
+  <div class="page-form-body" *ngIf="!loadingLookups; else formLoading">
+    <div class="fg2">
+
+      <!-- ── Book Selection ── -->
+      <div class="section-divider"><span>Book Selection</span></div>
+
+      <div class="form-group">
+        <label>Board</label>
+        <select [(ngModel)]="formBoardId" (ngModelChange)="onFormBoardChange()">
+          <option value="">— All Boards —</option>
+          <option *ngFor="let b of boards" [ngValue]="b.id">{{ b.name || b.code }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Class</label>
+        <select [(ngModel)]="formClassId" (ngModelChange)="onFormClassChange()" [disabled]="!formBoardId">
+          <option value="">{{ formBoardId ? '— All Classes —' : '— Select Board first —' }}</option>
+          <option *ngFor="let c of formClassOptions" [ngValue]="c.id">{{ classOptionLabel(c) }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Subject</label>
+        <select [(ngModel)]="formSubjectId" (ngModelChange)="onFormSubjectChange()" [disabled]="!formClassId">
+          <option value="">{{ formClassId ? '— All Subjects —' : '— Select Class first —' }}</option>
+          <option *ngFor="let s of formSubjectOptions" [ngValue]="s.id">{{ s.name }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Book Name <span class="required">*</span></label>
+        <select [(ngModel)]="selectedBookName" (ngModelChange)="onBookNameChange()">
+          <option value="">— Select Book Name —</option>
+          <option *ngFor="let name of uniqueBookNames" [value]="name">{{ name }}</option>
+        </select>
+        <span class="field-hint">Select a name first — then choose the exact edition/code below</span>
+      </div>
+
+      <div class="form-group">
+        <label>
+          Book Code <span class="required">*</span>
+          <small class="label-note">(auto-filtered by name)</small>
+        </label>
+        <select [(ngModel)]="form.book_id" (ngModelChange)="onBookCodeChange()"
+                [disabled]="!selectedBookName && filteredBookCodes.length === 0">
+          <option value="">{{ selectedBookName ? '— Select Code —' : '— Select Book Name first —' }}</option>
+          <option *ngFor="let opt of filteredBookCodes" [value]="opt.id">{{ opt.code }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Book Seq No <small class="label-note">(auto-filled, not editable)</small></label>
+        <div class="auto-field">
+          <span class="auto-field-icon">⬡</span>
+          <span *ngIf="form._bookSeqNo" class="auto-field-value"># {{ form._bookSeqNo }}</span>
+          <span *ngIf="!form._bookSeqNo" class="auto-field-empty">Will fill after selecting book code</span>
+        </div>
+      </div>
+
+      <!-- ── Chapter Details ── -->
+      <div class="section-divider"><span>Chapter Details</span></div>
+
+      <div class="form-group">
+        <label>
+          Sequence <span class="required">*</span>
+          <small class="label-note" *ngIf="formMode === 'add'">Auto-filled · editable</small>
+        </label>
+        <div class="code-wrap">
+          <input type="number" [(ngModel)]="form.sequence" (ngModelChange)="onSequenceChange()" min="1" />
+          <span class="auto-tag" *ngIf="formMode === 'add'">AUTO</span>
+        </div>
+        <span class="field-hint" *ngIf="formMode === 'add'">
+          Select a book to auto-fill the next sequence number
+        </span>
+      </div>
+
+      <div class="form-group full">
+        <label>
+          Chapter Code <span class="required">*</span>
+          <small class="label-note">Auto-generated · editable</small>
+        </label>
+        <div class="code-wrap">
+          <input type="text" [(ngModel)]="form.chapter_code"
+                 placeholder="Will auto-generate after selecting book…"
+                 style="font-family: monospace; font-size: 12px;" />
+          <button type="button" class="code-regen" (click)="regenerateChapterCode()">↺ Regen</button>
+        </div>
+        <span class="field-hint">Format: <code>Seq_BookCode</code> e.g. <strong>01_KEY_EN_CBSEC_...</strong></span>
+      </div>
+
+      <div class="form-group full">
+        <label>Chapter Name <span class="required">*</span></label>
+        <input type="text" [(ngModel)]="form.name" (input)="onNameInput()"
+               placeholder="e.g. Matrubhumi (मातृभूमि)" />
+      </div>
+
+      <div class="form-group">
+        <label>
+          Abbreviation
+          <small class="label-note">Auto-generated · editable</small>
+        </label>
+        <div class="code-wrap">
+          <input type="text" [(ngModel)]="form.abbreviation" (input)="onAbbInput()"
+                 placeholder="Auto-fills from chapter name…" maxlength="20"
+                 style="text-transform: uppercase;" />
+          <button type="button" class="code-regen" (click)="regenerateAbbreviation()">↺ Regen</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Confidence</label>
+        <select [(ngModel)]="form.confidence">
+          <option value="Unverified">Unverified</option>
+          <option value="Verified">Verified</option>
+        </select>
+      </div>
+
+      <!-- ── File & Attribution ── -->
+      <div class="section-divider"><span>File &amp; Attribution</span></div>
+
+      <div class="form-group">
+        <label>
+          File Name
+          <small class="label-note">Auto-generated · editable</small>
+        </label>
+        <div class="code-wrap">
+          <input type="text" [(ngModel)]="form.file_name"
+                 placeholder="Auto-fills as BookSeq_ChapterSeq…"
+                 style="font-family: monospace;" />
+          <button type="button" class="code-regen" (click)="regenerateFileName()">↺ Regen</button>
+        </div>
+        <span class="field-hint">
+          Format: <code>BookSeq_ChapterSeq</code> e.g. <strong>02_03</strong>
+        </span>
+
+        <!-- ── PDF upload + viewer ── -->
+        <div class="pdf-upload-row">
+          <input
+            #pdfPicker
+            type="file"
+            accept="application/pdf,.pdf"
+            style="display:none"
+            (change)="onPdfFileSelected($event)"
+          />
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            [disabled]="uploadingPdf"
+            (click)="triggerPdfPicker(pdfPicker)"
+          >
+            <span *ngIf="!uploadingPdf">⇪ Upload PDF</span>
+            <span *ngIf="uploadingPdf">Uploading…</span>
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-edit btn-sm"
+            *ngIf="form.file_name"
+            (click)="openPdfViewer(form.file_name)"
+          >👁 View PDF</button>
+
+          <span class="pdf-current-name" *ngIf="form.file_name">
+            {{ pdfDisplayName(form.file_name) }}
+          </span>
+
+          <span class="field-hint pdf-save-hint" *ngIf="formMode === 'add'">
+            Save the chapter first, then upload its PDF.
+          </span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Checked By</label>
+        <input type="text" [(ngModel)]="form.checked_by" placeholder="e.g. Malhar" />
+      </div>
+
+      <!-- ── Settings ── -->
+      <div class="section-divider"><span>Settings</span></div>
+
+      <div class="form-group full">
+        <div class="toggle-field">
+          <span class="toggle-field-label">Active Status</span>
+          <label class="toggle-wrap" [class.toggle-wrap--on]="form.is_active">
+            <input type="checkbox" [checked]="form.is_active" (change)="toggleActive()" />
+            <span class="toggle-track"></span>
+            <span class="toggle-label-text">{{ form.is_active ? 'Active' : 'Inactive' }}</span>
+          </label>
+        </div>
+      </div>
+
+    </div><!-- /.fg2 -->
+  </div><!-- /.page-form-body -->
+
+  <ng-template #formLoading>
+    <div class="table-card loading-card">
+      <div class="spinner"></div>
+      <span>Loading...</span>
+    </div>
+  </ng-template>
+
+  <div class="page-form-footer">
+    <button class="btn btn-ghost" (click)="goToList()">Cancel</button>
+    <button class="btn btn-primary" (click)="save()" [disabled]="saving">
+      <span *ngIf="saving">Saving…</span>
+      <span *ngIf="!saving">{{ formMode === 'edit' ? 'Save Changes' : 'Add Chapter' }}</span>
+    </button>
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- PDF VIEWER MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay pdf-viewer-overlay" *ngIf="pdfViewerUrl" (click)="closePdfViewer()">
+  <div class="pdf-viewer-box" (click)="$event.stopPropagation()">
+    <div class="pdf-viewer-header">
+      <span class="pdf-viewer-title">{{ pdfViewerTitle }}</span>
+      <button class="pdf-viewer-close" (click)="closePdfViewer()" title="Close">✕</button>
+    </div>
+    <iframe class="pdf-viewer-frame" [src]="pdfViewerUrl" title="PDF Viewer"></iframe>
+  </div>
+</div>

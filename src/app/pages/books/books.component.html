@@ -1,0 +1,426 @@
+<!-- ============================================================ -->
+<!-- LIST VIEW -->
+<!-- ============================================================ -->
+<div class="page-wrap" *ngIf="!formMode">
+
+  <!-- Stats Row -->
+  <div class="stats-row stats-row--6">
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--total"><span class="icon-glyph">▤</span></div>
+      <div>
+        <div class="stat-value">{{ statsTotal }}</div>
+        <div class="stat-label">Total Books</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--active"><span class="icon-glyph">✓</span></div>
+      <div>
+        <div class="stat-value">{{ statsActive }}</div>
+        <div class="stat-label">Active Books</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--purple"><span class="icon-glyph">♪</span></div>
+      <div>
+        <div class="stat-value">{{ statsAudio }}</div>
+        <div class="stat-label">Audio Books</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--orange"><span class="icon-glyph">▥</span></div>
+      <div>
+        <div class="stat-value">{{ statsMaster }}</div>
+        <div class="stat-label">Master Books</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--gray"><span class="icon-glyph">▦</span></div>
+      <div>
+        <div class="stat-value">{{ statsSub }}</div>
+        <div class="stat-label">Sub Books</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon stat-icon--inactive"><span class="icon-glyph">⊘</span></div>
+      <div>
+        <div class="stat-value">{{ statsInactive }}</div>
+        <div class="stat-label">Inactive</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <div class="filter-field">
+      <label>BOARD</label>
+      <select class="filter-select" [(ngModel)]="filterBoardId" (ngModelChange)="onFilterBoardChange()">
+        <option value="">All Boards</option>
+        <option *ngFor="let b of boards" [value]="b.id">{{ b.name }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label>CLASS</label>
+      <select class="filter-select" [(ngModel)]="filterClassId" (ngModelChange)="onFilterClassChange()">
+        <option value="">All Classes</option>
+        <option *ngFor="let c of filterClassOptions" [value]="c.id">{{ classOptionLabel(c) }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label>SUBJECT</label>
+      <select class="filter-select" [(ngModel)]="filterSubjectId" (ngModelChange)="onFilterChange()">
+        <option value="">All Subjects</option>
+        <option *ngFor="let s of filterSubjectOptions" [value]="s.id">{{ s.name }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field filter-field--sm">
+      <label>STATUS</label>
+
+      <select class="filter-select" [(ngModel)]="filterStatus" (ngModelChange)="onFilterChange()">
+        <option value="">All</option>
+        <option value="1">Active</option>
+        <option value="0">Inactive</option>
+      </select>
+    </div>
+
+    <div class="search-field">
+      <label>&nbsp;</label>
+      <div class="search-bar">
+        <span class="search-icon">⌕</span>
+        <input type="text" [(ngModel)]="search" (input)="applyFilter()" placeholder="Search books by name, code, subject, publisher..." />
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-add" (click)="goToAdd()" *ngIf="canWrite">
+      <span class="btn-icon">+</span> Add Book
+    </button>
+  </div>
+
+  <!-- Table Card -->
+  <div class="table-card" *ngIf="!loading && !loadingLookups; else loadingTpl">
+    <div class="table-card-header">
+      <div>
+        <div class="table-title">All Books ({{ filtered.length }})</div>
+        <div class="table-subtitle">Live search updates as you type</div>
+      </div>
+      <div class="table-count-pill">Showing {{ filtered.length }} of {{ books.length }}</div>
+    </div>
+
+    <div class="table-scroll" *ngIf="filtered.length; else empty">
+      <table class="vm-table">
+        <thead>
+          <tr>
+            <th class="col-idx">#</th>
+            <th>BOOK NAME</th>
+            <th>CODE</th>
+            <th>LANGUAGE</th>
+            <th>COURSE</th>
+            <th>BOARD</th>
+            <th>CLASS</th>
+            <th>SUBJECT</th>
+            <th>PUBLISHER</th>
+            <th>TYPE</th>
+            <th>EDITION</th>
+            <th>STATUS</th>
+            <th *ngIf="canWrite" class="col-actions">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let b of filtered">
+            <td class="idx">
+              <span class="seq-badge">{{ b.sequence_number ?? '-' }}</span>
+            </td>
+            <td>
+              <div class="entity-name-cell">
+                <div class="entity-name">{{ b.name || '-' }}</div>
+              </div>
+            </td>
+            <td>
+              <code class="code-pill">{{ b.code }}</code>
+            </td>
+            <td>
+              <span class="badge-lang" *ngIf="b.language">{{ b.language }}</span>
+              <span class="text-muted" *ngIf="!b.language">-</span>
+            </td>
+            <td>
+              <span class="badge-ct" *ngIf="b.course_type">{{ b.course_type }}</span>
+              <span class="text-muted" *ngIf="!b.course_type">-</span>
+            </td>
+            <td class="text-muted">{{ boardName(b) }}</td>
+            <td>{{ className(b) }}</td>
+            <td class="text-muted">
+              <ng-container *ngIf="subjectName(b); else dash">{{ subjectName(b) }}</ng-container>
+            </td>
+            <td class="text-muted">{{ publisherLabel(b) || '-' }}</td>
+            <td>
+              <span class="type-pill" [ngClass]="b.type === 'Master Book' ? 'type-master' : 'type-sub'">
+                {{ b.type === 'Master Book' ? 'Master' : 'Sub' }}
+              </span>
+            </td>
+            <td class="text-muted">{{ b.edition_start_year }}</td>
+            <td>
+              <button
+                class="status-toggle-badge"
+                [ngClass]="isActive(b) ? 'status-active' : 'status-inactive'"
+                (click)="toggleStatus(b)"
+                [title]="isActive(b) ? 'Click to deactivate' : 'Click to activate'"
+              >
+                {{ isActive(b) ? 'Active' : 'Inactive' }}
+              </button>
+            </td>
+            <td *ngIf="canWrite">
+              <div class="action-btns">
+                <button class="btn btn-edit btn-sm" (click)="goToEdit(b)">Edit</button>
+                <button
+                  class="btn btn-danger btn-sm"
+                  (click)="confirmDelete(b)"
+                  *ngIf="auth.user?.role === 'superadmin'"
+                >Delete</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ng-template #empty>
+      <div class="empty-state">
+        <div class="empty-icon">▤</div>
+        <p>No books found{{ search ? ' for "' + search + '"' : '' }}</p>
+      </div>
+    </ng-template>
+  </div>
+
+  <ng-template #loadingTpl>
+    <div class="table-card loading-card">
+      <div class="spinner"></div>
+      <span>Loading books...</span>
+    </div>
+  </ng-template>
+
+</div>
+
+<ng-template #dash><span class="text-muted">-</span></ng-template>
+
+<!-- ============================================================ -->
+<!-- ADD / EDIT FORM -->
+<!-- ============================================================ -->
+<div class="page-form-wrapper" *ngIf="formMode">
+  <div class="page-form-header">
+    <button class="page-form-header-back" (click)="goToList()" title="Back to list">
+      <span>‹</span>
+    </button>
+    <span class="page-form-title">{{ formMode === 'edit' ? 'Edit Book: ' + (form.name || '') : 'Add New Book' }}</span>
+  </div>
+
+  <div class="page-form-body" *ngIf="!loadingLookups; else formLoading">
+    <div class="fg2">
+
+      <div class="section-divider"><span>Catalogue</span></div>
+
+      <div class="form-group">
+        <label>Board <span class="required">*</span></label>
+        <select [(ngModel)]="form.board_id" (ngModelChange)="onFormBoardChange()">
+          <option value="">— Board —</option>
+          <option *ngFor="let b of boards" [ngValue]="b.id">{{ b.name }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Class <span class="required">*</span></label>
+        <select [(ngModel)]="form.class_id" (ngModelChange)="onFormClassChange()" [disabled]="!form.board_id">
+          <option value="">{{ form.board_id ? '— Class —' : '— Select Board first —' }}</option>
+          <option *ngFor="let c of formClassOptions" [ngValue]="c.id">{{ classOptionLabel(c) }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Subject <small>(Name + Code)</small></label>
+        <select [(ngModel)]="form.subject_id" (ngModelChange)="regenerateCode()" [disabled]="!form.class_id">
+          <option value="">{{ form.class_id ? '— None —' : '— Select Class first —' }}</option>
+          <option *ngFor="let s of formSubjectOptions" [ngValue]="s.id">{{ s.name }}{{ s.code ? ' (' + s.code + ')' : '' }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Publisher <span class="required">*</span></label>
+        <select [(ngModel)]="form.publisher_id" (ngModelChange)="regenerateCode()">
+          <option value="">— Publisher —</option>
+          <option *ngFor="let p of publishers" [ngValue]="p.id">{{ p.code }} — {{ p.name }}</option>
+        </select>
+      </div>
+
+      <div class="section-divider"><span>Identity</span></div>
+
+      <div class="form-group full">
+        <label>Book Code <span class="required">*</span> <small>Auto-generated · editable</small></label>
+        <div class="code-wrap">
+          <input type="text" [(ngModel)]="form.code" placeholder="Will auto-generate…" autocomplete="off" />
+          <button type="button" class="code-regen" (click)="regenerateCode()">↺ Regen</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Book Name <span class="required">*</span></label>
+        <input type="text" [(ngModel)]="form.name" placeholder="e.g. Ganita Prakash" />
+      </div>
+      <div class="form-group">
+        <label>Language</label>
+        <select [(ngModel)]="form.language" (ngModelChange)="regenerateCode()">
+          <option value="">— Language —</option>
+          <option *ngFor="let lg of languages" [value]="lg.name">{{ lg.name }} ({{ lg.code }})</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Course Type</label>
+        <select [(ngModel)]="form.course_type" (ngModelChange)="regenerateCode()">
+          <option value="">— Course Type —</option>
+          <option *ngFor="let ct of courseTypes" [value]="ct.code">{{ ct.code }}{{ ct.description ? ' — ' + ct.description : '' }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Author Name</label>
+        <input type="text" [(ngModel)]="form.author_name" placeholder="e.g. NCERT" />
+      </div>
+
+      <div class="section-divider"><span>Edition</span></div>
+
+      <div class="form-group">
+        <label>Book Number</label>
+        <input type="number" [(ngModel)]="form.book_number" (ngModelChange)="regenerateCode()" min="1" />
+      </div>
+      <div class="form-group">
+        <label>Edition Number</label>
+        <input type="number" [(ngModel)]="form.edition_number" (ngModelChange)="regenerateCode()" min="1" />
+      </div>
+      <div class="form-group">
+        <label>Edition Start Year</label>
+        <input type="text" [(ngModel)]="form.edition_start_year" (ngModelChange)="regenerateCode()" placeholder="2026" />
+      </div>
+      <div class="form-group">
+        <label>Edition End Year</label>
+        <input type="text" [(ngModel)]="form.edition_end_year" placeholder="NA" />
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select [(ngModel)]="form.type">
+          <option value="Master Book">Master Book</option>
+          <option value="Sub Book">Sub Book</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Master Book <small>(Sub Books only)</small></label>
+        <select [(ngModel)]="form.master_book_id">
+          <option value="">— None —</option>
+          <option *ngFor="let mb of masterBooks" [ngValue]="mb.id">{{ mb.name }} ({{ mb.code }})</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>No. of Chapters</label>
+        <input type="number" [(ngModel)]="form.no_of_chapters" min="0" placeholder="—" />
+      </div>
+      <div class="form-group">
+        <label>Book Specification <small>Controls first segment of Book Code</small></label>
+        <select [(ngModel)]="form.book_spec" (ngModelChange)="regenerateCode()">
+          <option value="publisher">Publisher Based</option>
+          <option value="key">Key Book</option>
+        </select>
+      </div>
+
+      <div class="section-divider"><span>Audio</span></div>
+
+      <div class="form-group">
+        <label>Audio Link</label>
+        <input type="text" [(ngModel)]="form.audio_link" placeholder="https://…" />
+      </div>
+      <div class="form-group form-group--inline-check">
+        <label class="checkbox-row">
+          <input type="checkbox" [checked]="form.eligible_for_audio == 1" (change)="form.eligible_for_audio = form.eligible_for_audio == 1 ? 0 : 1" />
+          Eligible for Audio
+        </label>
+      </div>
+
+      <div class="section-divider"><span>Aliases</span></div>
+
+      <div class="form-group">
+        <label>Vikas Alias</label>
+        <input type="text" [(ngModel)]="form.vikas_alias" />
+      </div>
+      <div class="form-group">
+        <label>Jitendar Alias</label>
+        <input type="text" [(ngModel)]="form.jitendar_alias" />
+      </div>
+      <div class="form-group">
+        <label>Saurabh Alias</label>
+        <input type="text" [(ngModel)]="form.saurabh_alias" />
+      </div>
+
+      <div class="section-divider"><span>Settings</span></div>
+
+      <div class="form-group">
+        <label>Sequence Number <small>Controls list order</small></label>
+        <input type="number" [(ngModel)]="form.sequence_number" min="1" [placeholder]="(maxSequence + 1).toString()" />
+        <div class="seq-hint" *ngIf="formMode === 'edit'">
+          Current position: <strong>#{{ form.sequence_number }}</strong> · highest is <strong>#{{ maxSequence }}</strong>
+        </div>
+        <div class="seq-hint" *ngIf="formMode === 'add'">
+          Leave as <strong>{{ maxSequence + 1 }}</strong> to add at the end, or set a lower number to insert earlier
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Display Order</label>
+        <input type="number" [(ngModel)]="form.display_order" />
+      </div>
+
+      <div class="form-group full">
+        <div class="toggle-field">
+          <span>Active Status</span>
+          <label class="toggle-wrap" [class.toggle-wrap--on]="form.is_active == 1">
+            <input type="checkbox" [checked]="form.is_active == 1" (change)="toggleActive()" />
+            <span class="toggle-track"></span>
+            <span class="toggle-label-text">{{ form.is_active == 1 ? 'Active' : 'Inactive' }}</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group full">
+        <label>Description</label>
+        <textarea [(ngModel)]="form.description" rows="3" placeholder="Optional description…"></textarea>
+      </div>
+
+    </div>
+  </div>
+
+  <ng-template #formLoading>
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <span>Loading form data...</span>
+    </div>
+  </ng-template>
+
+  <div class="page-form-footer">
+    <button class="btn btn-ghost" (click)="goToList()">Cancel</button>
+    <button class="btn btn-primary" (click)="save()" [disabled]="saving || loadingLookups">
+      <div class="spinner spinner-sm" *ngIf="saving"></div>
+      {{ saving ? 'Saving...' : (formMode === 'edit' ? 'Save Changes' : 'Add Book') }}
+    </button>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div class="modal-overlay" *ngIf="deleteConfirm" (click)="deleteConfirm = null">
+  <div class="modal-box modal-box--sm" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Delete Book</h3>
+      <button class="modal-close" (click)="deleteConfirm = null">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="delete-msg">
+        Delete <strong>{{ deleteConfirm.name }}</strong>?
+        This may affect related chapters and sub-books.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" (click)="deleteConfirm = null">Cancel</button>
+      <button class="btn btn-danger" (click)="doDelete()">Delete</button>
+    </div>
+  </div>
+</div>

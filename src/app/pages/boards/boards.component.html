@@ -1,0 +1,177 @@
+<div class="page-header">
+  <div>
+    <div class="page-title">Boards</div>
+    <div class="page-subtitle">Manage education boards (CBSE, ICSE, State boards…)</div>
+  </div>
+  <button class="btn btn-primary" (click)="openAdd()" *ngIf="canWrite">
+    <span class="btn-icon">+</span> Add Board
+  </button>
+</div>
+
+<!-- Stats Row -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--total">◈</div>
+    <div>
+      <div class="stat-value">{{ boards.length }}</div>
+      <div class="stat-label">Total Boards</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--active">✓</div>
+    <div>
+      <div class="stat-value">{{ activeCount }}</div>
+      <div class="stat-label">Active</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--inactive">○</div>
+    <div>
+      <div class="stat-value">{{ boards.length - activeCount }}</div>
+      <div class="stat-label">Inactive</div>
+    </div>
+  </div>
+</div>
+
+<!-- Table Card -->
+<div class="table-card" *ngIf="!loading; else loadingTpl">
+  <div class="table-toolbar">
+    <div class="table-title">All Boards</div>
+    <div class="search-bar">
+      <span class="search-icon">⌕</span>
+      <input type="text" [(ngModel)]="search" (input)="applyFilter()" placeholder="Search boards…" />
+    </div>
+  </div>
+
+  <table class="vm-table" *ngIf="filtered.length; else empty">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Name</th>
+        <th>Code</th>
+        <th>Description</th>
+        <th>Order</th>
+        <th>Status</th>
+        <th *ngIf="canWrite">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let b of filtered; let i = index">
+        <td class="text-muted idx">{{ i + 1 }}</td>
+        <td>
+          <div class="board-name-cell">
+            <div class="board-avatar">{{ b.code?.[0] || b.name?.[0] }}</div>
+            <div>
+              <div class="board-name">{{ b.name }}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <code class="code-pill" *ngIf="b.code">{{ b.code }}</code>
+          <span class="text-muted" *ngIf="!b.code">—</span>
+        </td>
+        <td class="desc-cell">
+          <span class="desc-text" [title]="b.description">{{ b.description || '—' }}</span>
+        </td>
+        <td class="text-center">
+          <span class="order-badge">{{ b.display_order ?? '—' }}</span>
+        </td>
+        <td>
+          <span class="status-badge" [ngClass]="b.is_active ? 'status-active' : 'status-inactive'">
+            <span class="status-dot"></span>
+            {{ b.is_active ? 'Active' : 'Inactive' }}
+          </span>
+        </td>
+        <td *ngIf="canWrite">
+          <div class="action-btns">
+            <button class="btn btn-edit btn-sm" (click)="openEdit(b)">
+              <span class="btn-icon-sm">◇</span> Edit
+            </button>
+            <button class="btn btn-danger btn-sm" (click)="confirmDelete(b)"
+              *ngIf="auth.user?.role === 'superadmin'">
+              <span class="btn-icon-sm">⊟</span> Delete
+            </button>
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <ng-template #empty>
+    <div class="empty-state">
+      <div class="empty-icon">◉</div>
+      <p>No boards found{{ search ? ' for "' + search + '"' : '' }}</p>
+    </div>
+  </ng-template>
+</div>
+
+<ng-template #loadingTpl>
+  <div class="table-card loading-card">
+    <div class="spinner"></div>
+    <span>Loading boards…</span>
+  </div>
+</ng-template>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" *ngIf="modal.open" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h3>{{ modal.mode === 'add' ? 'Add Board' : 'Edit Board' }}</h3>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Board Name <span class="required">*</span></label>
+        <input type="text" [(ngModel)]="modal.data.name" placeholder="e.g. Central Board of Secondary Education" />
+      </div>
+      <div class="form-group">
+        <label>Code</label>
+        <input type="text" [(ngModel)]="modal.data.code" placeholder="e.g. CBSE" style="text-transform:uppercase" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea [(ngModel)]="modal.data.description" placeholder="Brief description of this board…" rows="3"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Display Order</label>
+          <input type="number" [(ngModel)]="modal.data.display_order" placeholder="1" min="1" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select [(ngModel)]="modal.data.is_active">
+            <option [value]="1">Active</option>
+            <option [value]="0">Inactive</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" (click)="closeModal()">Cancel</button>
+      <button class="btn btn-primary" (click)="save()" [disabled]="saving">
+        <div class="spinner spinner-sm" *ngIf="saving"></div>
+        {{ saving ? 'Saving…' : 'Save' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirm -->
+<div class="modal-overlay" *ngIf="deleteConfirm" (click)="deleteConfirm = null">
+  <div class="modal-box modal-box--sm" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Delete Board</h3>
+      <button class="modal-close" (click)="deleteConfirm = null">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="delete-msg">
+        Delete <strong>{{ deleteConfirm?.name }}</strong>?
+        This may affect related classes and subjects.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" (click)="deleteConfirm = null">Cancel</button>
+      <button class="btn btn-danger" (click)="doDelete()">Delete</button>
+    </div>
+  </div>
+</div>

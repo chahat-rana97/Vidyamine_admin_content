@@ -1,0 +1,241 @@
+<!-- Page Header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <h1 class="page-title">Admin Users</h1>
+    <p class="page-subtitle">Manage panel access — create, edit, and control permissions.</p>
+  </div>
+  @if (isSuperadmin) {
+    <button class="btn-add" (click)="openAdd()">
+      <span class="btn-add-icon">+</span> Add User
+    </button>
+  }
+</div>
+
+<!-- Stat Cards -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--blue">
+      <span class="sicon sicon-users"></span>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ users.length }}</div>
+      <div class="stat-label">Total Users</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--purple">
+      <span class="sicon sicon-star"></span>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ countByRole('superadmin') }}</div>
+      <div class="stat-label">Super Admins</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--teal">
+      <span class="sicon sicon-admin"></span>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ countByRole('admin') }}</div>
+      <div class="stat-label">Admins</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--orange">
+      <span class="sicon sicon-editor"></span>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ countByRole('editor') }}</div>
+      <div class="stat-label">Editors</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--green">
+      <span class="sicon sicon-active"></span>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ countActive() }}</div>
+      <div class="stat-label">Active</div>
+    </div>
+  </div>
+</div>
+
+<!-- Table Card -->
+<div class="table-card">
+  <div class="table-card-header">
+    <span class="table-card-title">All Users</span>
+    <div class="search-wrap">
+      <span class="search-icon-inner"></span>
+      <input
+        type="text"
+        class="search-input"
+        [(ngModel)]="search"
+        (input)="applyFilter()"
+        placeholder="Search users…" />
+    </div>
+  </div>
+
+  @if (loading) {
+    <div class="loading-row">
+      <div class="spinner"></div>
+      <span>Loading users…</span>
+    </div>
+  } @else {
+    <table class="vm-table">
+      <thead>
+        <tr>
+          <th class="th-num">#</th>
+          <th>Name</th>
+          <th>Contact</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created</th>
+          @if (isAdminOrAbove) { <th>Created By</th> }
+          @if (isSuperadmin) { <th class="th-actions">Actions</th> }
+        </tr>
+      </thead>
+      <tbody>
+        @if (filtered.length === 0) {
+          <tr>
+            <td [attr.colspan]="(isSuperadmin ? 7 : 6) + (isAdminOrAbove ? 1 : 0)" class="empty-cell">
+              <div class="empty-state">
+                <div class="empty-icon"></div>
+                <p>No admin users found</p>
+              </div>
+            </td>
+          </tr>
+        }
+        @for (u of filtered; track u.id; let i = $index) {
+          <tr [class.is-self]="u.id === auth.user?.id">
+            <td class="td-num">{{ i + 1 }}</td>
+            <td>
+              <div class="user-cell">
+                <div class="mini-avatar" [style.background]="avatarColor(u.name)">
+                  {{ u.name?.[0]?.toUpperCase() }}
+                </div>
+                <div class="user-cell-info">
+                  <span class="user-cell-name">
+                    {{ u.name }}
+                    @if (u.id === auth.user?.id) {
+                      <span class="you-badge">You</span>
+                    }
+                  </span>
+                  <span class="user-cell-email">{{ u.email }}</span>
+                </div>
+              </div>
+            </td>
+            <td class="td-contact">{{ u.phone || '—' }}</td>
+            <td>
+              <span class="role-badge role-badge--{{ u.role }}">
+                @if (u.role === 'superadmin') { <span class="role-star">★</span> }
+                {{ roleLabel(u.role) }}
+              </span>
+            </td>
+            <td>
+              <span class="status-badge" [class.status-badge--active]="u.is_active">
+                {{ u.is_active ? 'Active' : 'Inactive' }}
+              </span>
+            </td>
+            <td class="td-date">{{ u.created_at | date:'d MMM yyyy' }}</td>
+            @if (isAdminOrAbove) {
+              <td class="td-createdby">{{ u.created_by || '—' }}</td>
+            }
+            @if (isSuperadmin) {
+              <td class="td-actions">
+                <div class="action-btns">
+                  <button class="act-btn act-btn--edit" (click)="openEdit(u)">
+                    <span class="act-icon act-icon--edit"></span> Edit
+                  </button>
+                  @if (u.id !== auth.user?.id) {
+                    <button class="act-btn act-btn--del" (click)="confirmDelete(u)">
+                      <span class="act-icon act-icon--del"></span> Delete
+                    </button>
+                  }
+                </div>
+              </td>
+            }
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>
+
+<!-- Add / Edit Modal -->
+@if (modal.open) {
+  <div class="modal-overlay" (click)="closeModal()">
+    <div class="modal-box" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>{{ modal.mode === 'add' ? 'Add Admin User' : 'Edit User' }}</h3>
+        <button class="modal-close" (click)="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" [(ngModel)]="modal.data.name" placeholder="John Doe" />
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" [(ngModel)]="modal.data.email" placeholder="john@vidyamine.com" />
+          </div>
+          <div class="form-group">
+            <label>Phone</label>
+            <input type="text" [(ngModel)]="modal.data.phone" placeholder="+91 9876543210" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Password {{ modal.mode === 'edit' ? '(leave blank to keep current)' : '' }}</label>
+          <input type="password" [(ngModel)]="modal.data.password" placeholder="••••••••" />
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Role</label>
+            <select [(ngModel)]="modal.data.role">
+              @for (r of roles; track r) {
+                <option [value]="r">{{ r }}</option>
+              }
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select [(ngModel)]="modal.data.is_active">
+              <option [value]="1">Active</option>
+              <option [value]="0">Inactive</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-modal-cancel" (click)="closeModal()">Cancel</button>
+        <button class="btn-modal-save" (click)="save()" [disabled]="saving">
+          @if (saving) { <div class="spinner" style="width:13px;height:13px;border-width:2px"></div> }
+          {{ saving ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Delete Confirm Modal -->
+@if (deleteConfirm) {
+  <div class="modal-overlay" (click)="deleteConfirm = null">
+    <div class="modal-box modal-box--sm" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Delete User</h3>
+        <button class="modal-close" (click)="deleteConfirm = null">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="delete-msg">
+          Are you sure you want to delete
+          <strong>{{ deleteConfirm?.name }}</strong>?
+          This action cannot be undone.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-modal-cancel" (click)="deleteConfirm = null">Cancel</button>
+        <button class="btn-modal-delete" (click)="doDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+}

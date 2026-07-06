@@ -1,0 +1,137 @@
+<div class="app-shell" [class.sidebar-collapsed]="!sidebarOpen">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-mark">
+        <img src="assets/vm_logo.png" alt="VidyaMine" class="logo-img" />
+      </div>
+      @if (sidebarOpen) {
+        <div class="logo-text">
+          <span class="logo-name">Vidyamine Content</span>
+          <span class="logo-tag">Admin Panel</span>
+        </div>
+      }
+    </div>
+
+    <nav class="sidebar-nav">
+      @for (group of visibleNavGroups; track group.groupLabel) {
+        <div class="nav-group">
+          @if (sidebarOpen) {
+            <span class="nav-group-label">{{ group.groupLabel }}</span>
+          } @else {
+            <div class="nav-group-divider"></div>
+          }
+
+          @for (item of group.items; track item.route) {
+            <a [routerLink]="item.route"
+               routerLinkActive="active"
+               class="nav-item"
+               [class.is-restricted]="isRestricted(item)"
+               (click)="onNavItemClick(item, $event)">
+              <span class="nav-icon" [ngClass]="item.icon"></span>
+              @if (sidebarOpen) {
+                <span class="nav-label">{{ item.label }}</span>
+                @if (item.roles?.length) {
+                  <span class="nav-dot"></span>
+                }
+              }
+            </a>
+          }
+        </div>
+      }
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="signout-btn" (click)="openLogoutConfirm()" title="Sign out">
+        <span class="nav-icon icon-logout"></span>
+        @if (sidebarOpen) {
+          <span>Sign out</span>
+        }
+      </button>
+    </div>
+  </aside>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="toggle-btn" [class.is-collapsed]="!sidebarOpen" (click)="toggleSidebar()" aria-label="Toggle sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="9" y1="4" x2="9" y2="20"/>
+            <path d="m14 9-3 3 3 3"/>
+          </svg>
+        </button>
+      </div>
+      <div class="topbar-right">
+        <button
+          class="theme-toggle-btn"
+          (click)="toggleTheme()"
+          [attr.aria-label]="themeSvc.isLight ? 'Switch to dark mode' : 'Switch to light mode'"
+          [title]="themeSvc.isLight ? 'Switch to dark mode' : 'Switch to light mode'">
+          <span class="theme-toggle-track" [class.is-light]="themeSvc.isLight">
+            <span class="theme-toggle-thumb">
+              @if (themeSvc.isLight) {
+                <!-- sun icon -->
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+              } @else {
+                <!-- moon icon -->
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+              }
+            </span>
+          </span>
+        </button>
+
+        <div class="topbar-user">
+          <div class="user-info">
+            <span class="user-name">{{ auth.user?.name }}</span>
+            <span class="user-role">{{ auth.user?.role }}</span>
+          </div>
+          <div class="user-avatar sm">{{ userInitials }}</div>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+
+</div>
+
+<!-- Logout Confirmation Modal -->
+@if (showLogoutConfirm) {
+  <div class="modal-backdrop" (click)="cancelLogout()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-icon">
+        <span class="nav-icon icon-logout" style="width:28px;height:28px;opacity:1;"></span>
+      </div>
+      <h3 class="modal-title">Sign out?</h3>
+      <p class="modal-desc">You'll need to sign in again to access the admin panel.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" (click)="cancelLogout()">Cancel</button>
+        <button class="btn-confirm" (click)="confirmLogout()">Sign out</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Access Denied Modal -->
+@if (showAccessDenied) {
+  <div class="modal-backdrop" (click)="closeAccessDenied()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-icon modal-icon--danger">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px;">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>
+        </svg>
+      </div>
+      <h3 class="modal-title">Access Denied</h3>
+      <p class="modal-desc">You don't have permission to access Admin Users with your current role. Contact an administrator if you need access.</p>
+      <div class="modal-actions">
+        <button class="btn-confirm" (click)="closeAccessDenied()">Okay</button>
+      </div>
+    </div>
+  </div>
+}
+
+<app-toast></app-toast>

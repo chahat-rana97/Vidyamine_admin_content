@@ -1,0 +1,329 @@
+<div class="cv-root">
+
+  <!-- ═══════════════ TOP BAR ═══════════════ -->
+  <div class="cv-topbar">
+    <button class="cv-back" (click)="goBack()">← Back</button>
+    <div class="cv-title">
+      <span class="cv-topicname">{{ topic?.name || 'Loading…' }}</span>
+      <code class="cv-topiccode" *ngIf="topic">{{ topic.topic_code }}</code>
+    </div>
+    <div class="cv-spacer"></div>
+    <button class="cv-changebtn" (click)="openPicker()">🔀 Change documents</button>
+  </div>
+
+  <!-- ═══════════════ PICKER MODAL ═══════════════ -->
+  <div class="modal-overlay cv-picker-overlay" *ngIf="pickerOpen" (click)="pickerOpen && availableDocTypes.length ? null : null">
+    <div class="cv-picker-box" (click)="$event.stopPropagation()">
+      <div class="cv-picker-head">
+        <h3>Compare documents</h3>
+        <button class="cv-picker-close" *ngIf="left.docType && right.docType" (click)="pickerOpen = false">✕</button>
+      </div>
+
+      <ng-container *ngIf="availableDocTypes.length < 2; else pickerBody">
+        <div class="cv-picker-empty">
+          Not enough documents attached yet to compare. Attach at least two of:
+          Screenshots, Claude PPT, ChatGPT PPT, or Claude PDF, then try again.
+        </div>
+      </ng-container>
+
+      <ng-template #pickerBody>
+        <div class="cv-picker-body">
+          <div class="cv-picker-col">
+            <div class="cv-picker-label">Left side</div>
+            <button
+              *ngFor="let dt of availableDocTypes"
+              class="cv-picker-opt"
+              [class.selected]="pickerLeft === dt"
+              [disabled]="pickerRight === dt"
+              (click)="choosePickerSide('left', dt)"
+            >{{ DOC_LABEL[dt] }}</button>
+          </div>
+
+          <div class="cv-picker-vs">vs</div>
+
+          <div class="cv-picker-col">
+            <div class="cv-picker-label">Right side</div>
+            <button
+              *ngFor="let dt of availableDocTypes"
+              class="cv-picker-opt"
+              [class.selected]="pickerRight === dt"
+              [disabled]="pickerLeft === dt"
+              (click)="choosePickerSide('right', dt)"
+            >{{ DOC_LABEL[dt] }}</button>
+          </div>
+        </div>
+
+        <div class="cv-picker-footer">
+          <button class="cv-picker-confirm" [disabled]="!pickerValid" (click)="confirmPicker()">
+            Open comparison →
+          </button>
+        </div>
+      </ng-template>
+    </div>
+  </div>
+
+  <!-- ═══════════════ SPLIT VIEW ═══════════════ -->
+  <div class="cv-split-wrap" #splitWrap *ngIf="!pickerOpen && left.docType && right.docType">
+
+    <!-- LEFT PANE -->
+    <div class="cv-pane" [style.width.%]="leftWidthPct">
+      <div class="cv-pane-head">
+        <span class="cv-pane-title">{{ DOC_LABEL[left.docType] }}</span>
+        <span class="cv-pane-pageinfo" *ngIf="left.items.length">
+          {{ left.activeIndex + 1 }} / {{ left.items.length }}
+        </span>
+        <div class="cv-pane-spacer"></div>
+        <div class="cv-zoomgroup">
+          <button class="cv-zoombtn" (click)="zoomOut('left')" title="Zoom out">−</button>
+          <button class="cv-zoombtn cv-zoombtn-reset" (click)="zoomReset('left')" title="Reset zoom">{{ (left.zoom * 100) | number:'1.0-0' }}%</button>
+          <button class="cv-zoombtn" (click)="zoomIn('left')" title="Zoom in">+</button>
+        </div>
+        <button class="cv-commentbtn" [class.active]="pinningMode && activePaneSide === 'left'"
+                [disabled]="!canWrite" (click)="startPinning('left')" title="Click a spot on any slide/page to pin a comment">
+          💬 Comment
+        </button>
+      </div>
+
+      <div class="cv-pane-body">
+        <div class="cv-pane-loading" *ngIf="left.loading">Loading…</div>
+        <div class="cv-pane-error" *ngIf="!left.loading && left.error">{{ left.error }}</div>
+
+        <ng-container *ngIf="!left.loading && !left.error">
+
+          <!-- Screenshots pane: vertical scrollable list of all screenshots -->
+          <ng-container *ngIf="left.docType === 'screenshots'">
+            <div class="cv-vlist" [style.--cv-zoom]="left.zoom">
+              <div class="cv-vitem" *ngFor="let it of left.items; let i = index">
+                <div class="cv-vitem-label">{{ it.label }}</div>
+                <div class="cv-surface" [id]="'leftSurface-' + i" #leftSurfaceItem
+                     [class.pinning]="pinningMode && activePaneSide === 'left'"
+                     (click)="onSurfaceClick('left', $event, leftSurfaceItem, i)">
+                  <img [src]="it.imageUrl" [alt]="it.label" class="cv-shot-img"
+                       (load)="onScreenshotLoad('left', $event.target)" />
+                  <div class="cv-commentbox" *ngFor="let c of commentsForIndex('left', i)" [class.resolved]="c.resolved"
+                       [style.left.px]="pinDisplayPos('left', c, leftSurfaceItem).x" [style.top.px]="pinDisplayPos('left', c, leftSurfaceItem).y">
+                    <div class="cv-commentbox-text">{{ c.text }}</div>
+                  </div>
+                  <div class="cv-commentbox cv-commentbox-pending" *ngIf="pendingPin && pendingPinSide === 'left' && left.activeIndex === i"
+                       [style.left.px]="pendingPin.x" [style.top.px]="pendingPin.y">
+                    <div class="cv-commentbox-text">{{ newCommentText || 'New comment…' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <!-- PDF pane: vertical scrollable list of every rendered page -->
+          <ng-container *ngIf="left.docType === 'claude_pdf'">
+            <div class="cv-vlist" [style.--cv-zoom]="left.zoom">
+              <div class="cv-vitem" *ngFor="let it of left.items; let i = index">
+                <div class="cv-vitem-label">{{ it.label }}</div>
+                <div class="cv-surface cv-surface-pdf" [id]="'leftSurface-' + i" #leftSurfaceItem
+                     [class.pinning]="pinningMode && activePaneSide === 'left'"
+                     (click)="onSurfaceClick('left', $event, leftSurfaceItem, i)">
+                  <canvas [id]="i === 0 ? 'leftPdfCanvas' : 'leftPdfCanvas-' + i"></canvas>
+                  <div class="cv-page-spinner" *ngIf="left.pageRendering && left.activeIndex === i">Rendering page…</div>
+                  <div class="cv-commentbox" *ngFor="let c of commentsForIndex('left', i)" [class.resolved]="c.resolved"
+                       [style.left.px]="pinDisplayPos('left', c, leftSurfaceItem).x" [style.top.px]="pinDisplayPos('left', c, leftSurfaceItem).y">
+                    <div class="cv-commentbox-text">{{ c.text }}</div>
+                  </div>
+                  <div class="cv-commentbox cv-commentbox-pending" *ngIf="pendingPin && pendingPinSide === 'left' && left.activeIndex === i"
+                       [style.left.px]="pendingPin.x" [style.top.px]="pendingPin.y">
+                    <div class="cv-commentbox-text">{{ newCommentText || 'New comment…' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <!-- PPTX pane: vertical scrollable list of every rendered slide,
+               same structure as the PDF pane above and the right-side PPTX
+               pane below. Must stay in sync with renderAllPptxSlides(),
+               which loops over left.items and expects one canvas per index
+               (leftPptxCanvas, leftPptxCanvas-1, leftPptxCanvas-2, ...). -->
+          <ng-container *ngIf="left.docType === 'claude_ppt' || left.docType === 'gpt_ppt'">
+            <div class="cv-vlist" [style.--cv-zoom]="left.zoom">
+              <div class="cv-vitem" *ngFor="let it of left.items; let i = index">
+                <div class="cv-vitem-label">{{ it.label }}</div>
+                <div class="cv-surface cv-surface-pptx" [id]="'leftSurface-' + i" #leftSurfaceItem
+                     [class.pinning]="pinningMode && activePaneSide === 'left'"
+                     (click)="onSurfaceClick('left', $event, leftSurfaceItem, i)">
+                  <canvas [id]="i === 0 ? 'leftPptxCanvas' : 'leftPptxCanvas-' + i"></canvas>
+                  <div class="cv-page-spinner" *ngIf="left.pageRendering && left.activeIndex === i">Rendering slide…</div>
+                  <div class="cv-commentbox" *ngFor="let c of commentsForIndex('left', i)" [class.resolved]="c.resolved"
+                       [style.left.px]="pinDisplayPos('left', c, leftSurfaceItem).x" [style.top.px]="pinDisplayPos('left', c, leftSurfaceItem).y">
+                    <div class="cv-commentbox-text">{{ c.text }}</div>
+                  </div>
+                  <div class="cv-commentbox cv-commentbox-pending" *ngIf="pendingPin && pendingPinSide === 'left' && left.activeIndex === i"
+                       [style.left.px]="pendingPin.x" [style.top.px]="pendingPin.y">
+                    <div class="cv-commentbox-text">{{ newCommentText || 'New comment…' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+        </ng-container>
+      </div>
+    </div>
+
+    <!-- DRAG HANDLE -->
+    <div class="cv-divider" (mousedown)="onDragStart($event)">
+      <div class="cv-divider-grip"></div>
+    </div>
+
+    <!-- RIGHT PANE -->
+    <div class="cv-pane" [style.width.%]="100 - leftWidthPct">
+      <div class="cv-pane-head">
+        <span class="cv-pane-title">{{ DOC_LABEL[right.docType] }}</span>
+        <span class="cv-pane-pageinfo" *ngIf="right.items.length">
+          {{ right.activeIndex + 1 }} / {{ right.items.length }}
+        </span>
+        <div class="cv-pane-spacer"></div>
+        <div class="cv-zoomgroup">
+          <button class="cv-zoombtn" (click)="zoomOut('right')" title="Zoom out">−</button>
+          <button class="cv-zoombtn cv-zoombtn-reset" (click)="zoomReset('right')" title="Reset zoom">{{ (right.zoom * 100) | number:'1.0-0' }}%</button>
+          <button class="cv-zoombtn" (click)="zoomIn('right')" title="Zoom in">+</button>
+        </div>
+        <button class="cv-commentbtn" [class.active]="pinningMode && activePaneSide === 'right'"
+                [disabled]="!canWrite" (click)="startPinning('right')" title="Click a spot on any slide/page to pin a comment">
+          💬 Comment
+        </button>
+      </div>
+
+      <div class="cv-pane-body">
+        <div class="cv-pane-loading" *ngIf="right.loading">Loading…</div>
+        <div class="cv-pane-error" *ngIf="!right.loading && right.error">{{ right.error }}</div>
+
+        <ng-container *ngIf="!right.loading && !right.error">
+
+          <ng-container *ngIf="right.docType === 'screenshots'">
+            <div class="cv-vlist" [style.--cv-zoom]="right.zoom">
+              <div class="cv-vitem" *ngFor="let it of right.items; let i = index">
+                <div class="cv-vitem-label">{{ it.label }}</div>
+                <div class="cv-surface" [id]="'rightSurface-' + i" #rightSurfaceItem
+                     [class.pinning]="pinningMode && activePaneSide === 'right'"
+                     (click)="onSurfaceClick('right', $event, rightSurfaceItem, i)">
+                  <img [src]="it.imageUrl" [alt]="it.label" class="cv-shot-img"
+                       (load)="onScreenshotLoad('right', $event.target)" />
+                  <div class="cv-commentbox" *ngFor="let c of commentsForIndex('right', i)" [class.resolved]="c.resolved"
+                       [style.left.px]="pinDisplayPos('right', c, rightSurfaceItem).x" [style.top.px]="pinDisplayPos('right', c, rightSurfaceItem).y">
+                    <div class="cv-commentbox-text">{{ c.text }}</div>
+                  </div>
+                  <div class="cv-commentbox cv-commentbox-pending" *ngIf="pendingPin && pendingPinSide === 'right' && right.activeIndex === i"
+                       [style.left.px]="pendingPin.x" [style.top.px]="pendingPin.y">
+                    <div class="cv-commentbox-text">{{ newCommentText || 'New comment…' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-container *ngIf="right.docType === 'claude_pdf'">
+            <div class="cv-vlist" [style.--cv-zoom]="right.zoom">
+              <div class="cv-vitem" *ngFor="let it of right.items; let i = index">
+                <div class="cv-vitem-label">{{ it.label }}</div>
+                <div class="cv-surface cv-surface-pdf" [id]="'rightSurface-' + i" #rightSurfaceItem
+                     [class.pinning]="pinningMode && activePaneSide === 'right'"
+                     (click)="onSurfaceClick('right', $event, rightSurfaceItem, i)">
+                  <canvas [id]="i === 0 ? 'rightPdfCanvas' : 'rightPdfCanvas-' + i"></canvas>
+                  <div class="cv-page-spinner" *ngIf="right.pageRendering && right.activeIndex === i">Rendering page…</div>
+                  <div class="cv-commentbox" *ngFor="let c of commentsForIndex('right', i)" [class.resolved]="c.resolved"
+                       [style.left.px]="pinDisplayPos('right', c, rightSurfaceItem).x" [style.top.px]="pinDisplayPos('right', c, rightSurfaceItem).y">
+                    <div class="cv-commentbox-text">{{ c.text }}</div>
+                  </div>
+                  <div class="cv-commentbox cv-commentbox-pending" *ngIf="pendingPin && pendingPinSide === 'right' && right.activeIndex === i"
+                       [style.left.px]="pendingPin.x" [style.top.px]="pendingPin.y">
+                    <div class="cv-commentbox-text">{{ newCommentText || 'New comment…' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-container *ngIf="right.docType === 'claude_ppt' || right.docType === 'gpt_ppt'">
+            <div class="cv-vlist" [style.--cv-zoom]="right.zoom">
+              <div class="cv-vitem" *ngFor="let it of right.items; let i = index">
+                <div class="cv-vitem-label">{{ it.label }}</div>
+                <div class="cv-surface cv-surface-pptx" [id]="'rightSurface-' + i" #rightSurfaceItem
+                     [class.pinning]="pinningMode && activePaneSide === 'right'"
+                     (click)="onSurfaceClick('right', $event, rightSurfaceItem, i)">
+                  <canvas [id]="i === 0 ? 'rightPptxCanvas' : 'rightPptxCanvas-' + i"></canvas>
+                  <div class="cv-page-spinner" *ngIf="right.pageRendering && right.activeIndex === i">Rendering slide…</div>
+                  <div class="cv-commentbox" *ngFor="let c of commentsForIndex('right', i)" [class.resolved]="c.resolved"
+                       [style.left.px]="pinDisplayPos('right', c, rightSurfaceItem).x" [style.top.px]="pinDisplayPos('right', c, rightSurfaceItem).y">
+                    <div class="cv-commentbox-text">{{ c.text }}</div>
+                  </div>
+                  <div class="cv-commentbox cv-commentbox-pending" *ngIf="pendingPin && pendingPinSide === 'right' && right.activeIndex === i"
+                       [style.left.px]="pendingPin.x" [style.top.px]="pendingPin.y">
+                    <div class="cv-commentbox-text">{{ newCommentText || 'New comment…' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+        </ng-container>
+      </div>
+    </div>
+
+    <!-- ═══════════════ COMMENTS PANEL ═══════════════ -->
+    <div class="cv-comments-panel">
+      <div class="cv-comments-head">
+        <span>💬 Comments</span>
+        <span class="cv-comments-count">{{ allCommentsFor(activePaneSide).length }}</span>
+      </div>
+
+      <div class="cv-comments-tabs">
+        <button [class.active]="activePaneSide === 'left'" (click)="activePaneSide = 'left'">
+          {{ DOC_LABEL[left.docType] }}
+        </button>
+        <button [class.active]="activePaneSide === 'right'" (click)="activePaneSide = 'right'">
+          {{ DOC_LABEL[right.docType] }}
+        </button>
+      </div>
+
+      <div class="cv-comments-list">
+        <div class="cv-comments-empty" *ngIf="!allCommentsFor(activePaneSide).length && !loadingComments">
+          No comments yet.
+        </div>
+        <div class="cv-comment-item" *ngFor="let c of allCommentsFor(activePaneSide)" [class.resolved]="c.resolved"
+             (click)="scrollToItem(activePaneSide, c.pageIndex)">
+          <div class="cv-comment-meta">
+            <span class="cv-comment-pagebadge">{{ c.pageLabel }}</span>
+            <span class="cv-comment-author">{{ c.author || 'Unknown' }}</span>
+            <span class="cv-comment-date">{{ c.created_at }}</span>
+          </div>
+          <div class="cv-comment-text">{{ c.text }}</div>
+          <div class="cv-comment-actions" *ngIf="canWrite">
+            <button (click)="toggleResolve(c); $event.stopPropagation()">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</button>
+            <button (click)="deleteComment(c); $event.stopPropagation()">🗑 Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compose box -->
+      <div class="cv-compose" *ngIf="canWrite">
+        <div class="cv-compose-pin-hint" *ngIf="pendingPin">
+          📍 Pinned to this spot on {{ DOC_LABEL[paneOfPublic(activePaneSide).docType!] }}
+          <button (click)="cancelPendingPin()">✕</button>
+        </div>
+        <textarea
+          [(ngModel)]="newCommentText"
+          placeholder="Add a comment on this page… (or click 💬 Comment above to pin it to an exact spot)"
+          rows="3"
+        ></textarea>
+        <button class="cv-compose-submit" [disabled]="!newCommentText.trim()" (click)="submitComment(activePaneSide)">
+          Post comment
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pinning mode banner -->
+  <div class="cv-pinning-banner" *ngIf="pinningMode">
+    Click anywhere on the {{ activePaneSide }} page to place your comment pin —
+    <button (click)="cancelPinning()">cancel</button>
+  </div>
+
+</div>

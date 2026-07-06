@@ -1,0 +1,759 @@
+<!-- ============================================================ -->
+<!-- TOPIC STUDIO SCREEN -->
+<!-- ============================================================ -->
+<div class="topics-wrap">
+
+  <input
+    #importPicker
+    type="file"
+    accept="image/*"
+    multiple
+    style="display:none"
+    (change)="onImportFilesSelected($event)"
+  />
+
+  <input
+    #chapterPdfPicker
+    type="file"
+    accept="application/pdf,.pdf"
+    style="display:none"
+    (change)="onChapterPdfSelected($event)"
+  />
+
+  <!-- Chapter strip -->
+  <div class="topic-chapter-strip">
+    <button class="back-btn" (click)="goBackToChapters()" title="Back to chapters">‹</button>
+
+    <div class="chapter-title-block" *ngIf="!loadingChapter; else chapTitleLoading">
+      <h1>{{ chapter?.name || 'Chapter' }}</h1>
+      <code class="chapter-codepill">{{ chapter?.chapter_code || '' }}</code>
+    </div>
+    <ng-template #chapTitleLoading>
+      <div class="chapter-title-block">
+        <h1>Loading chapter…</h1>
+      </div>
+    </ng-template>
+
+    <div class="strip-right" *ngIf="canWrite">
+      <button class="tbtn" (click)="triggerImportPicker(importPicker)">＋ Add new topic</button>
+      <button
+        class="tbtn"
+        [disabled]="fillingAllCaptions"
+        (click)="fillAllEmptyCaptions()"
+      >{{ fillingAllCaptions ? '⏳ Filling…' : '✨ Fill all empty captions' }}</button>
+      <button class="tbtn tbtn--run">⚡ Run all / Full pack</button>
+      <button class="tbtn tbtn--save">Save captions</button>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="topic-statusbar">
+
+    <!-- ── Chapter PDF card ── -->
+    <div
+      class="chapter-pdf-card"
+      [ngClass]="chapter?.file_name ? 'pdf-attached' : 'pdf-missing'"
+      (click)="openOrAddChapterPdf(chapterPdfPicker)"
+      [title]="chapter?.file_name ? 'Click to view chapter PDF' : (canWrite ? 'Click to add chapter PDF' : 'No PDF attached')"
+    >
+      <span class="chapter-pdf-icon">📄</span>
+      <div class="chapter-pdf-meta">
+        <span class="chapter-pdf-label">Chapter NCERT PDF</span>
+        <span class="chapter-pdf-sub" *ngIf="!chapter?.file_name">
+          {{ uploadingPdf ? 'Uploading…' : 'Not attached — click to add' }}
+        </span>
+        <span class="chapter-pdf-sub chapter-pdf-filename" *ngIf="chapter?.file_name">
+          {{ pdfDisplayName(chapter.file_name) }} <span class="chapter-pdf-viewhint">· click to view</span>
+        </span>
+      </div>
+      <span class="chapter-pdf-badge" [ngClass]="chapter?.file_name ? 'badge-attached' : 'badge-missing'">
+        {{ chapter?.file_name ? 'Attached' : 'Not attached' }}
+      </span>
+    </div>
+
+    
+
+    <div class="ring" [style.--p]="statsTotalSlots ? (statsDoneArtifacts / statsTotalSlots * 100) : 0">
+      <span>{{ statsTotalSlots ? (statsDoneArtifacts / statsTotalSlots * 100 | number:'1.0-0') : 0 }}%</span>
+    </div>
+    <div class="stat"><span class="k">Topics</span><span class="v">{{ statsTotalTopics }}</span></div>
+    <div class="stat"><span class="k">Active</span><span class="v">{{ statsActiveTopics }}</span></div>
+    <div class="stat"><span class="k">Screenshots</span><span class="v">{{ statsTotalScreenshots }}</span></div>
+    <div class="stat"><span class="k">Artifacts done</span><span class="v">{{ statsDoneArtifacts }} / {{ statsTotalSlots }}</span></div>
+
+    <!-- ── Export all screenshots as ZIP ── -->
+    <button
+      type="button"
+      class="export-zip-btn"
+      [disabled]="exportingZip || !statsTotalScreenshots"
+      (click)="exportScreenshotsZip()"
+      title="Download all screenshots as a ZIP, organised in one folder per topic"
+    >
+      <span *ngIf="!exportingZip">⬇ Export screenshots (ZIP)</span>
+      <span *ngIf="exportingZip">Zipping… {{ exportProgress }}%</span>
+    </button>
+  </div>
+  
+
+  <!-- Topic rows -->
+  <div class="topic-list" *ngIf="!loading; else loadingTpl">
+
+    <div class="topic-row" *ngFor="let t of topics; let i = index">
+
+      <!-- ── Left: screenshots panel ── -->
+      <div class="shotcell">
+        <div class="lbl">Screenshots</div>
+        <div class="shotgrid">
+          <div
+            class="mainshot"
+            *ngFor="let s of t._screenshots; let si = index"
+            [style.background-image]="'url(' + screenshotUrl(s) + ')'"
+            [title]="s"
+            (click)="openLightbox(t, si)"
+          >
+            <button class="rm" *ngIf="canWrite" (click)="$event.stopPropagation(); removeScreenshot(t, si)" title="Remove">✕</button>
+          </div>
+
+          <div class="mainshot empty" *ngIf="!t._screenshots?.length">
+            <span>No screenshots</span>
+          </div>
+
+          <button
+            class="addshot"
+            *ngIf="canWrite"
+            (click)="triggerUpload(t, fileInput)"
+            [disabled]="uploadingTopicId[t.id]"
+            title="Add screenshot"
+          >
+            <span *ngIf="!uploadingTopicId[t.id]">＋</span>
+            <span *ngIf="uploadingTopicId[t.id]" class="mini-spinner"></span>
+            <small>{{ uploadingTopicId[t.id] ? 'UPLOADING' : 'ADD' }}</small>
+          </button>
+          <input
+            #fileInput
+            type="file"
+            accept="image/*"
+            style="display:none"
+            (change)="onFileSelected(t, $event)"
+          />
+        </div>
+
+        <div class="row-icons">
+          <button class="iconbtn" title="Move up" (click)="moveTopic(i, -1)" [disabled]="i === 0">▲</button>
+          <button class="iconbtn" title="Move down" (click)="moveTopic(i, 1)" [disabled]="i === topics.length - 1">▼</button>
+          <button
+            class="status-toggle-badge"
+            [ngClass]="isActive(t) ? 'status-active' : 'status-inactive'"
+            (click)="toggleStatus(t)"
+          >{{ isActive(t) ? 'Active' : 'Inactive' }}</button>
+          <button class="iconbtn del" title="Delete topic" *ngIf="canDelete" (click)="confirmDelete(t)">🗑</button>
+        </div>
+
+        <!-- ── YouTube link row (below swap/status/delete row) ── -->
+        <div class="yt-row">
+          <div class="yt-link-box" *ngIf="ytEditingId !== t.id">
+            <span
+              class="yt-link-pill"
+              [ngClass]="t.youtube_link ? 'yt-has-link' : 'yt-no-link'"
+              [title]="t.youtube_link ? t.youtube_link : 'No video link added'"
+              (click)="openYoutubeLink(t)"
+            >
+              <span class="yt-dot"></span>
+              <span class="yt-text">{{ t.youtube_link ? 'Video link' : 'No video link' }}</span>
+            </span>
+            <button
+              class="iconbtn yt-edit-btn"
+              *ngIf="canWrite"
+              title="{{ t.youtube_link ? 'Edit / remove video link' : 'Add video link' }}"
+              (click)="startEditYoutubeLink(t)"
+            >✎</button>
+          </div>
+
+          <!-- ── YouTube link edit mode ── -->
+          <div class="yt-link-edit" *ngIf="ytEditingId === t.id">
+            <input
+              type="text"
+              class="yt-link-input"
+              [(ngModel)]="ytLinkDraft"
+              placeholder="Paste YouTube video link…"
+              (keyup.enter)="saveYoutubeLink(t)"
+              (keyup.escape)="cancelEditYoutubeLink()"
+              autofocus
+            />
+            <button class="iconbtn yt-save-btn" title="Save link" [disabled]="savingYoutubeLink[t.id]" (click)="saveYoutubeLink(t)">✓</button>
+            <button
+              class="iconbtn yt-remove-btn"
+              title="Delete link"
+              *ngIf="t.youtube_link"
+              [disabled]="savingYoutubeLink[t.id]"
+              (click)="removeYoutubeLink(t)"
+            >🗑</button>
+            <button class="iconbtn yt-cancel-btn" title="Cancel" (click)="cancelEditYoutubeLink()">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Right: caption + tracks ── -->
+      <div class="rightcell">
+        <div class="caphead">
+          <span class="topicno">Topic {{ t.sequence }}</span>
+          <input
+            class="capinput"
+            [(ngModel)]="t.name"
+            placeholder="Topic name / caption…"
+            (blur)="saveCaption(t)"
+          />
+          <code class="topiccode" [title]="t.topic_code">{{ t.topic_code }}</code>
+          <button
+            type="button"
+            class="autofill"
+            title="Auto-fill this topic with AI"
+            [disabled]="autofillingTopicId[t.id] || !t._screenshots?.length"
+            (click)="autofillCaption(t)"
+          >{{ autofillingTopicId[t.id] ? '⏳ Filling…' : '✨ Auto-fill' }}</button>
+        </div>
+
+        <div class="trackboxes">
+          <div class="abox" *ngFor="let type of TRACK_TYPES">
+            <div class="abhead">
+              <span class="abicon">{{ TRACK_ICON[type] }}</span>
+              <span class="abtitle">{{ TRACK_LABEL[type] }}</span>
+              <span class="abstatus">—</span>
+            </div>
+
+            <!-- ── SLIDE tile: Claude PPT / ChatGPT PPT / Claude PDF ── -->
+            <ng-container *ngIf="type === 'slide'; else genericTrackActions">
+              <div class="abactions slidedoc-actions">
+                <button
+                  *ngFor="let docType of SLIDE_DOC_TYPES"
+                  class="slidedoc-btn"
+                  [class.attached]="slideDocAttached(t, docType)"
+                  [class.notattached]="!slideDocAttached(t, docType)"
+                  (click)="openSlideDocModal(t, docType)"
+                >
+                  <span class="sd-dot"></span>
+                  {{ SLIDE_DOC_DEFS[docType].label }}
+                </button>
+                <button
+                  class="slidedoc-btn compare-btn"
+                  (click)="openCompareView(t)"
+                  title="Compare screenshots, PPTs, and PDF against each other"
+                >
+                  🔍 Compare
+                </button>
+              </div>
+              <div class="abempty">
+                <ng-container *ngIf="!slideDocAttached(t,'claude_ppt') || !slideDocAttached(t,'gpt_ppt') || !slideDocAttached(t,'claude_pdf'); else allAttachedMsg">
+                  Tap a button to attach that document
+                </ng-container>
+                <ng-template #allAttachedMsg>All 3 documents attached</ng-template>
+              </div>
+            </ng-container>
+
+            <!-- ── Script / Quiz / Exercise: original Fast/Detailed/Attach ── -->
+            <ng-template #genericTrackActions>
+              <div class="abactions">
+                <button class="ab-fast" (click)="trackFast(t, type)">⚡ Fast</button>
+                <button class="ab-detail" (click)="trackDetailed(t, type)">⚙ Detailed</button>
+                <button class="ab-attach" (click)="trackAttach(t, type)">⇪ Attach</button>
+              </div>
+              <div class="abempty">No file yet — Fast, Detailed, or Attach</div>
+            </ng-template>
+          </div>
+        </div>
+
+
+        <!-- ── Created By / Updated By (visible to superadmin & admin only) ── -->
+        <div class="audit-strip" *ngIf="canDelete">
+          <span class="audit-line" title="Created by">Created by: {{ t.created_by || '—' }}</span>
+          <span class="audit-line" title="Last updated by">Updated by: {{ t.updated_by || '—' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="empty-state" *ngIf="!topics.length">
+      <div class="empty-icon">▤</div>
+      <p>No topics yet for this chapter</p>
+      <button class="tbtn" (click)="triggerImportPicker(importPicker)" *ngIf="canWrite">＋ Add first topic</button>
+    </div>
+  </div>
+
+  <ng-template #loadingTpl>
+    <div class="topic-loading-card">
+      <div class="spinner"></div>
+      <span>Loading topics...</span>
+    </div>
+  </ng-template>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- BULK SCREENSHOT IMPORT REVIEW MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay import-overlay" *ngIf="importReview" (click)="cancelImport()">
+  <div class="modal-box import-box" (click)="$event.stopPropagation()">
+    <div class="import-head">
+      <div class="modal-title">Import screenshots</div>
+      <div class="import-sub">
+        Matching against chapter code <code>{{ importReview.chapterCode }}</code> —
+        {{ importResolvedCount }} / {{ importReview.items.length }} ready
+      </div>
+      <button class="lb-close" (click)="cancelImport()">✕</button>
+    </div>
+
+    <div class="import-grid">
+      <div
+        class="import-item"
+        *ngFor="let it of importReview.items"
+        [ngClass]="{ 'import-item--warn': !it.resolved, 'import-item--ok': it.resolved }"
+      >
+        <div class="import-thumb" [style.background-image]="'url(' + it.previewUrl + ')'"></div>
+
+        <div class="import-info">
+          <div class="import-fname" [title]="it.originalName">{{ it.originalName }}</div>
+
+          <ng-container *ngIf="it.resolved; else needsFix">
+            <div class="import-ok-row">
+              <span class="import-badge import-badge--ok">Topic {{ it.topicNo }}</span>
+              <span class="import-note">will be imported</span>
+            </div>
+          </ng-container>
+
+          <ng-template #needsFix>
+            <div class="import-warn-row">
+              <span class="import-badge import-badge--warn" *ngIf="it.parseError">⚠ Unrecognized name</span>
+              <span class="import-badge import-badge--warn" *ngIf="!it.parseError && !it.matches">⚠ Doesn't match this chapter</span>
+            </div>
+            <div class="import-warn-detail" *ngIf="it.parseError">{{ it.parseError }}</div>
+            <div class="import-warn-detail" *ngIf="!it.parseError && !it.matches">
+              Detected code <code>{{ it.detectedCode }}</code><br>expected <code>{{ importReview.chapterCode }}</code>
+            </div>
+
+            <div class="import-fix-block">
+              <label>Rename file</label>
+              <input
+                class="import-fix-input import-fix-input--wide"
+                type="text"
+                [placeholder]="'05_' + importReview.chapterCode"
+                #renameInput
+                [value]="it.originalName"
+              />
+              <div class="import-fix-row">
+                <button class="import-fix-btn" (click)="applyRename(it, renameInput.value)">Save name</button>
+                <button class="import-skip-btn" (click)="skipImportItem(it)">Skip file</button>
+              </div>
+
+              <label class="import-fix-alt-label">or just fix the topic no.</label>
+              <div class="import-fix-row">
+                <input
+                  class="import-fix-input"
+                  type="text"
+                  maxlength="2"
+                  placeholder="01"
+                  #noInput
+                  [value]="it.topicNo"
+                />
+                <button class="import-fix-btn import-fix-btn--ghost" (click)="applyTopicNoOnly(it, noInput.value)">Use this no.</button>
+              </div>
+            </div>
+          </ng-template>
+        </div>
+      </div>
+
+      <div class="empty-state" *ngIf="!importReview.items.length">
+        <p>No files left to import.</p>
+      </div>
+    </div>
+
+    <div class="import-gap-banner" *ngIf="importReview.missingNos.length && !importHasUnresolved">
+      ⚠ Missing topic number(s): <strong>{{ importReview.missingNos.join(', ') }}</strong> —
+      you can still import the rest, but these gaps won't be filled.
+    </div>
+
+    <div class="modal-actions import-actions">
+      <button class="btn-ghost" (click)="cancelImport()" [disabled]="importSubmitting">Cancel</button>
+      <button
+        class="btn-danger import-anyway-btn"
+        *ngIf="importReview.missingNos.length && !importHasUnresolved"
+        [disabled]="importSubmitting"
+        (click)="confirmImportDespiteGaps()"
+      >{{ importSubmitting ? 'Importing…' : 'Import anyway (leave gap)' }}</button>
+      <button
+        class="btn-danger"
+        *ngIf="!importReview.missingNos.length"
+        [disabled]="importHasUnresolved || importSubmitting || !importReview.items.length"
+        (click)="submitImport()"
+      >{{ importSubmitting ? 'Importing…' : 'Import ' + importResolvedCount + ' screenshot(s)' }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- DELETE CONFIRM MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay" *ngIf="deleteConfirm" (click)="deleteConfirm = null">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-icon">⚠</div>
+    <div class="modal-title">Delete Topic?</div>
+    <div class="modal-desc">
+      "<strong>{{ deleteConfirm?.name || deleteConfirm?.topic_code }}</strong>" will be permanently deleted.
+      This action cannot be undone.
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" (click)="deleteConfirm = null">Cancel</button>
+      <button class="btn-danger" (click)="doDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCREENSHOT LIGHTBOX VIEWER -->
+<!-- ============================================================ -->
+<div class="lightbox-overlay" *ngIf="lightboxTopic" (click)="closeLightbox()">
+  <div class="lightbox-box" (click)="$event.stopPropagation()">
+    <div class="lb-head">
+      <div>
+        <div class="lb-tag">Screenshot</div>
+        <div class="lb-title">{{ lightboxTopic?.name || ('Topic ' + lightboxTopic?.sequence) }}</div>
+      </div>
+      <div class="lb-zoom">
+        <button (click)="lbZoom(-1)" title="Zoom out">－</button>
+        <span>{{ (lbZoomLevel * 100) | number:'1.0-0' }}%</span>
+        <button (click)="lbZoom(1)" title="Zoom in">＋</button>
+        <button (click)="lbZoom(0)" title="Reset">⟳</button>
+        <button
+          class="lb-anno-toggle"
+          [class.active]="annoBarOpen"
+          (click)="toggleAnnoBar()"
+          title="Add notes / draw"
+        >✏️ Add notes</button>
+      </div>
+      <button class="lb-close" (click)="closeLightbox()">✕</button>
+    </div>
+
+    <!-- ANNOTATION TOOLBAR -->
+    <div class="anno-toolbar" *ngIf="annoBarOpen">
+      <div class="anno-tools">
+        <button [class.active]="annoTool==='select'" (click)="setAnnoTool('select')" title="Select / Pan">🖐</button>
+        <button [class.active]="annoTool==='pen'" (click)="setAnnoTool('pen')" title="Pen">✏️</button>
+        <button [class.active]="annoTool==='line'" (click)="setAnnoTool('line')" title="Line">╱</button>
+        <button [class.active]="annoTool==='arrow'" (click)="setAnnoTool('arrow')" title="Arrow">➜</button>
+        <button [class.active]="annoTool==='rect'" (click)="setAnnoTool('rect')" title="Rectangle">▭</button>
+        <button [class.active]="annoTool==='circle'" (click)="setAnnoTool('circle')" title="Circle / Ellipse">◯</button>
+        <button [class.active]="annoTool==='note'" (click)="setAnnoTool('note')" title="Sticky note">🗒</button>
+        <span class="anno-sep"></span>
+        <button [disabled]="!canUndo" (click)="undoAnno()" title="Undo">↶</button>
+        <button [disabled]="!canRedo" (click)="redoAnno()" title="Redo">↷</button>
+      </div>
+
+      <div class="anno-colors">
+        <input type="color" [(ngModel)]="annoColor" title="Color" />
+        <input type="range" min="1" max="12" [(ngModel)]="annoStrokeWidth" title="Stroke width" />
+        <span class="anno-sw-label">{{ annoStrokeWidth }}px</span>
+      </div>
+
+      <div class="anno-actions">
+        <button
+          class="anno-del"
+          *ngIf="annoSelectedId"
+          (click)="deleteAnnoElement(annoSelectedId)"
+          title="Delete selected"
+        >🗑 Delete</button>
+        <button class="anno-clear" (click)="clearAllAnnotations()" title="Clear all">🧹 Clear all</button>
+        <button class="anno-save" [disabled]="annoSaving" (click)="saveAnnotations()">
+          {{ annoSaving ? '⏳ Saving…' : '💾 Save layer' }}
+        </button>
+        <button class="anno-close" (click)="toggleAnnoBar()" title="Close toolbar">✕</button>
+      </div>
+    </div>
+
+    <div class="lb-body">
+      <div
+        class="lb-viewport"
+        (wheel)="onLbWheel($event)"
+        (mousedown)="onLbPanStart($event)"
+        (mousemove)="onLbPanMove($event); onNoteDragMove($event)"
+        (mouseup)="onLbPanEnd(); onNoteDragEnd()"
+        (mouseleave)="onLbPanEnd(); onNoteDragEnd()"
+        [class.panning]="annoTool==='select'"
+        [class.drawing]="annoBarOpen && annoTool!=='select'"
+      >
+        <div
+          class="lb-imgwrap"
+          #imgWrap
+          [style.transform]="'translate(' + lbPanX + 'px,' + lbPanY + 'px)'"
+        >
+          <div
+            class="lb-canvas-holder"
+            #canvasHolder
+            [style.transform]="'scale(' + lbZoomLevel + ')'"
+            [style.width.px]="annoImgNaturalW || null"
+            [style.height.px]="annoImgNaturalH || null"
+          >
+            <img
+              #lbImgEl
+              class="lb-img"
+              [src]="screenshotUrl(lightboxFilename)"
+              (load)="onLbImageLoad($event)"
+              alt="screenshot"
+              draggable="false"
+            />
+
+            <!-- Drawing / shapes overlay (SVG, in natural-image coordinate space) -->
+            <svg
+              class="anno-svg"
+              *ngIf="annoImgNaturalW"
+              [attr.width]="annoImgNaturalW"
+              [attr.height]="annoImgNaturalH"
+              [attr.viewBox]="'0 0 ' + annoImgNaturalW + ' ' + annoImgNaturalH"
+              (mousedown)="onAnnoCanvasMouseDown($event, canvasHolder)"
+              (mousemove)="onAnnoCanvasMouseMove($event, canvasHolder)"
+              (mouseup)="onAnnoCanvasMouseUp()"
+              [class.interactive]="annoBarOpen"
+            >
+              <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                  <path d="M0,0 L0,6 L9,3 z" [attr.fill]="annoColor"></path>
+                </marker>
+              </defs>
+
+              <ng-container *ngFor="let el of annoElements">
+                <path
+                  *ngIf="el.type==='pen'"
+                  [attr.d]="penPath(el)"
+                  fill="none"
+                  [attr.stroke]="el.color"
+                  [attr.stroke-width]="el.strokeWidth || 3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  (mousedown)="selectAnnoElement(el.id, $event)"
+                  [class.selected]="annoSelectedId===el.id"
+                ></path>
+
+                <rect
+                  *ngIf="el.type==='rect'"
+                  [attr.x]="el.x" [attr.y]="el.y" [attr.width]="el.w" [attr.height]="el.h"
+                  fill="none" [attr.stroke]="el.color" [attr.stroke-width]="el.strokeWidth || 3"
+                  (mousedown)="selectAnnoElement(el.id, $event)"
+                  [class.selected]="annoSelectedId===el.id"
+                ></rect>
+
+                <ellipse
+                  *ngIf="el.type==='circle'"
+                  [attr.cx]="(el.x||0) + (el.w||0)/2" [attr.cy]="(el.y||0) + (el.h||0)/2"
+                  [attr.rx]="((el.w||0)/2)" [attr.ry]="((el.h||0)/2)"
+                  fill="none" [attr.stroke]="el.color" [attr.stroke-width]="el.strokeWidth || 3"
+                  (mousedown)="selectAnnoElement(el.id, $event)"
+                  [class.selected]="annoSelectedId===el.id"
+                ></ellipse>
+
+                <line
+                  *ngIf="el.type==='line'"
+                  [attr.x1]="el.x" [attr.y1]="el.y" [attr.x2]="el.x2" [attr.y2]="el.y2"
+                  [attr.stroke]="el.color" [attr.stroke-width]="el.strokeWidth || 3"
+                  (mousedown)="selectAnnoElement(el.id, $event)"
+                  [class.selected]="annoSelectedId===el.id"
+                ></line>
+
+                <line
+                  *ngIf="el.type==='arrow'"
+                  [attr.x1]="el.x" [attr.y1]="el.y" [attr.x2]="el.x2" [attr.y2]="el.y2"
+                  [attr.stroke]="el.color" [attr.stroke-width]="el.strokeWidth || 3"
+                  marker-end="url(#arrowhead)"
+                  (mousedown)="selectAnnoElement(el.id, $event)"
+                  [class.selected]="annoSelectedId===el.id"
+                ></line>
+              </ng-container>
+
+              <!-- Live preview while drawing -->
+              <ng-container *ngIf="annoDraftPreview as d">
+                <path *ngIf="d.type==='pen'" [attr.d]="penPath(d)" fill="none" [attr.stroke]="d.color" [attr.stroke-width]="d.strokeWidth || 3" stroke-linecap="round"></path>
+                <rect *ngIf="d.type==='rect'" [attr.x]="d.x" [attr.y]="d.y" [attr.width]="d.w" [attr.height]="d.h" fill="none" [attr.stroke]="d.color" [attr.stroke-width]="d.strokeWidth || 3" stroke-dasharray="4 3"></rect>
+                <ellipse *ngIf="d.type==='circle'" [attr.cx]="(d.x||0)+(d.w||0)/2" [attr.cy]="(d.y||0)+(d.h||0)/2" [attr.rx]="(d.w||0)/2" [attr.ry]="(d.h||0)/2" fill="none" [attr.stroke]="d.color" [attr.stroke-width]="d.strokeWidth || 3" stroke-dasharray="4 3"></ellipse>
+                <line *ngIf="d.type==='line'" [attr.x1]="d.x" [attr.y1]="d.y" [attr.x2]="d.x2" [attr.y2]="d.y2" [attr.stroke]="d.color" [attr.stroke-width]="d.strokeWidth || 3"></line>
+                <line *ngIf="d.type==='arrow'" [attr.x1]="d.x" [attr.y1]="d.y" [attr.x2]="d.x2" [attr.y2]="d.y2" [attr.stroke]="d.color" [attr.stroke-width]="d.strokeWidth || 3" marker-end="url(#arrowhead)"></line>
+              </ng-container>
+            </svg>
+
+            <!-- Sticky notes (HTML, positioned absolutely in image space) -->
+            <div
+              *ngFor="let el of annoElements"
+              #noteBox
+              class="anno-note"
+              [style.display]="el.type==='note' ? 'block' : 'none'"
+              [style.left.px]="el.x"
+              [style.top.px]="el.y"
+              [style.width.px]="el.w"
+              [style.height.px]="el.h"
+              [style.background]="el.noteColor"
+              [class.selected]="annoSelectedId===el.id"
+              (mousedown)="selectAnnoElement(el.id, $event)"
+              [attr.data-note-id]="el.id"
+            >
+              <div
+                class="anno-note-drag"
+                title="Drag to move"
+                (mousedown)="onNoteDragStart($event, el)"
+              >⠿</div>
+              <button class="anno-note-del" *ngIf="annoBarOpen" (click)="deleteAnnoElement(el.id); $event.stopPropagation()">✕</button>
+              <textarea
+                [(ngModel)]="el.text"
+                [readOnly]="!annoBarOpen"
+                placeholder="Note…"
+                (mousedown)="$event.stopPropagation()"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lb-side">
+        <div class="lb-field">
+          <label>Filename</label>
+          <div class="lb-fname">{{ lightboxFilename }}</div>
+        </div>
+
+        <div class="lb-field">
+          <label>Topic / caption</label>
+          <textarea
+            class="lb-caption"
+            [(ngModel)]="lightboxTopic.name"
+            placeholder="Topic description / caption…"
+          ></textarea>
+        </div>
+
+        <div class="lb-btns">
+          <button class="lb-save" (click)="saveCaptionFromLightbox()">Save caption</button>
+          <button
+            type="button"
+            class="lb-save"
+            [disabled]="autofillingTopicId[lightboxTopic.id] || !lightboxTopic._screenshots?.length"
+            (click)="autofillCaption(lightboxTopic)"
+          >{{ autofillingTopicId[lightboxTopic.id] ? '⏳ Filling…' : '✨ Auto-fill caption' }}</button>
+          <button class="lb-delete" *ngIf="canWrite" (click)="removeScreenshotFromLightbox()">🗑 Remove screenshot</button>
+        </div>
+
+        <div class="lb-hint">Scroll to zoom. Drag to pan. Click "Add notes" to draw or add sticky notes.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- CHAPTER PDF VIEWER MODAL (in-app popup) -->
+<!-- ============================================================ -->
+<div class="modal-overlay pdf-viewer-overlay" *ngIf="pdfViewerUrl" (click)="closePdfViewer()">
+  <div class="pdf-viewer-box" (click)="$event.stopPropagation()">
+    <div class="pdf-viewer-header">
+      <span class="pdf-viewer-title">{{ pdfViewerTitle }}</span>
+      <button class="pdf-viewer-close" (click)="closePdfViewer()" title="Close">✕</button>
+    </div>
+    <iframe class="pdf-viewer-frame" [src]="pdfViewerUrl" title="Chapter PDF Viewer"></iframe>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE DOC MODAL (Claude PPT / ChatGPT PPT / Claude PDF) -->
+<!-- ============================================================ -->
+<div class="modal-overlay slidedoc-overlay" *ngIf="slideDocModal as m" (click)="closeSlideDocModal()">
+  <div class="modal-box slidedoc-box" (click)="$event.stopPropagation()">
+
+    <div class="slidedoc-header">
+      <span class="slidedoc-title">{{ m.def.label }}</span>
+      <code class="slidedoc-topiccode" [title]="m.topic.topic_code">{{ m.topic.topic_code }}</code>
+      <button class="slidedoc-close" (click)="closeSlideDocModal()" title="Close">✕</button>
+    </div>
+
+    <!-- ── VIEW STAGE: file already attached ── -->
+    <ng-container *ngIf="m.stage === 'view'">
+      <div class="slidedoc-viewbody">
+
+        <!-- Inline preview for PDFs -->
+        <ng-container *ngIf="m.def.type === 'claude_pdf'; else pptFileCard">
+          <iframe
+            class="slidedoc-pdf-frame"
+            [src]="slideDocSafeUrl(slideDocFilename(m.topic, m.def.type))"
+            title="Slide PDF preview"
+          ></iframe>
+        </ng-container>
+
+        <!-- No inline preview for PPT — show a file card instead -->
+        <ng-template #pptFileCard>
+          <div class="slidedoc-filecard">
+            <span class="slidedoc-fileicon">📊</span>
+            <div class="slidedoc-filename">{{ slideDocFilename(m.topic, m.def.type) }}</div>
+            <div class="slidedoc-filehint">PowerPoint files can't be previewed in-browser — download to view.</div>
+          </div>
+        </ng-template>
+
+        <div class="slidedoc-filename-bar" *ngIf="m.def.type === 'claude_pdf'">
+          {{ slideDocFilename(m.topic, m.def.type) }}
+        </div>
+      </div>
+
+      <div class="slidedoc-actions-row">
+        <button class="sd-action sd-download" (click)="downloadSlideDoc(m.topic, m.def.type)">⬇ Download</button>
+        <button class="sd-action sd-replace" *ngIf="canWrite" (click)="slideDocSwitchToUpload()">🔄 Replace</button>
+        <button class="sd-action sd-delete" *ngIf="canDelete" [disabled]="m.deleting" (click)="deleteSlideDoc()">
+          {{ m.deleting ? 'Removing…' : '🗑 Delete' }}
+        </button>
+      </div>
+    </ng-container>
+
+    <!-- ── UPLOAD STAGE: no file yet, or replacing ── -->
+    <ng-container *ngIf="m.stage === 'upload'">
+      <div class="slidedoc-uploadbody">
+
+        <div class="slidedoc-expected">
+          <label>Required filename</label>
+          <code>{{ expectedSlideDocBase(m.topic, m.def.type) }}.[{{ m.def.exts.join('|') }}]</code>
+        </div>
+
+        <input
+          #slideDocFileInput
+          type="file"
+          [accept]="'.' + m.def.exts.join(',.')"
+          style="display:none"
+          (change)="onSlideDocFileSelected($event)"
+        />
+
+        <!-- No file picked yet -->
+        <div class="slidedoc-picker" *ngIf="!m.pickedFile">
+          <button class="slidedoc-pick-btn" (click)="triggerSlideDocPicker(slideDocFileInput)">
+            ⇪ Choose file from my system
+          </button>
+        </div>
+
+        <!-- File picked — show validation result -->
+        <div class="slidedoc-picked" *ngIf="m.pickedFile">
+          <div class="slidedoc-picked-name">{{ m.pickedFile.name }}</div>
+
+          <div class="slidedoc-match-ok" *ngIf="m.nameMatches">
+            ✓ Filename matches — ready to upload
+          </div>
+
+          <div class="slidedoc-match-warn" *ngIf="!m.nameMatches">
+            ⚠ Code mismatch. Expected name:
+            <code>{{ expectedSlideDocBase(m.topic, m.def.type) }}.[{{ m.def.exts.join('|') }}]</code>
+            <div class="slidedoc-warn-actions">
+              <button class="sd-action sd-fixname" (click)="slideDocFixName()">✎ Rename & continue</button>
+              <button class="sd-action sd-pickagain" (click)="triggerSlideDocPicker(slideDocFileInput)">Choose a different file</button>
+            </div>
+          </div>
+
+          <div class="slidedoc-actions-row" *ngIf="m.nameMatches">
+            <button class="sd-action sd-cancel" [disabled]="m.uploading" (click)="slideDocCancelPickedFile()">Cancel</button>
+            <button class="sd-action sd-upload" [disabled]="m.uploading" (click)="confirmSlideDocUpload()">
+              {{ m.uploading ? 'Uploading…' : '⇪ Upload' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="slidedoc-back-row" *ngIf="slideDocAttached(m.topic, m.def.type)">
+          <button class="sd-action sd-cancel" (click)="slideDocBackToView()">← Back</button>
+        </div>
+      </div>
+    </ng-container>
+
+  </div>
+</div>
