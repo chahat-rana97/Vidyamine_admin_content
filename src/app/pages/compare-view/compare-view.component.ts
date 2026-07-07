@@ -11,9 +11,18 @@ import { AuthService } from '../../core/services/auth.service';
 // is copied into /public/assets/pdf.worker.min.mjs at build time and must be
 // the SAME pdfjs-dist version as the npm package (check with
 // pdfjsLib.version if you ever see silent hangs after upgrading the package).
-// Leading slash matters: a relative path resolves against the current route,
-// not the app root, and 404s on some routes.
-(pdfjsLib as any).GlobalWorkerOptions.workerSrc = '/assets/pdf.worker.min.mjs';
+//
+// The path is resolved against the app's actual <base href> rather than
+// hardcoded to "/" — a hardcoded root path only works when the app is
+// hosted at its domain's root (e.g. localhost:4200). On GitHub Pages (or
+// any deployment served from a subpath, e.g.
+// https://user.github.io/repo-name/), the real app root is
+// "/repo-name/", so "/assets/..." resolves to the wrong (404ing) URL.
+// Angular writes the deployed base path into <base href> at build time
+// (via --base-href / angular.json), so reading it here keeps this correct
+// in every environment without needing an environment-specific constant.
+const cvBaseHref = (document.querySelector('base')?.getAttribute('href') || '/').replace(/\/$/, '');
+(pdfjsLib as any).GlobalWorkerOptions.workerSrc = `${cvBaseHref}/assets/pdf.worker.min.mjs`;
 
 /** The four kinds of "document" that can appear in either pane. */
 export type CompareDocType = 'screenshots' | 'claude_ppt' | 'gpt_ppt' | 'claude_pdf';
