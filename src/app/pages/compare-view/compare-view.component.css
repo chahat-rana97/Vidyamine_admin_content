@@ -47,6 +47,34 @@
 }
 .cv-changebtn:hover { background: var(--accent-glow, rgba(99,102,241,0.25)); }
 
+/* ── Header pane-visibility toggles (left / right / comments) ── */
+.cv-panetoggles {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-elevated, #1a1e2a);
+  border: 1px solid var(--border, #252a38);
+  border-radius: 8px;
+  padding: 3px;
+}
+.cv-panetogglebtn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #50566e);
+  border-radius: 6px;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.cv-panetogglebtn:hover { color: var(--text-secondary, #8b90a7); }
+.cv-panetogglebtn.active {
+  background: var(--accent-dim, rgba(99,102,241,0.12));
+  color: var(--accent, #6366f1);
+}
+
 /* ── Picker modal ── */
 .cv-picker-overlay {
   position: fixed; inset: 0;
@@ -123,7 +151,7 @@
 .cv-pane-title { font-size: 13px; font-weight: 700; }
 .cv-pane-pageinfo { font-size: 11.5px; color: var(--text-muted); }
 .cv-pane-spacer { flex: 1; }
-.cv-commentbtn {
+.cv-fullscreenbtn {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-secondary);
@@ -131,13 +159,31 @@
   padding: 5px 11px;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
-.cv-commentbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.cv-commentbtn:disabled { opacity: 0.4; cursor: not-allowed; }
-.cv-commentbtn.active {
+.cv-fullscreenbtn:hover { border-color: var(--accent); color: var(--accent); }
+.cv-fullscreenbtn.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+/* ── Pane fullscreen (one pane fills the whole split view) ── */
+.cv-split-wrap.cv-fullscreen-active .cv-pane:not(.cv-pane-fullscreen),
+.cv-split-wrap.cv-fullscreen-active .cv-divider,
+.cv-split-wrap.cv-fullscreen-active .cv-comments-panel {
+  display: none;
+}
+.cv-pane.cv-pane-fullscreen {
+  width: 100% !important;
+  border-right: none;
+}
+
+/* Header toggle turned this pane off. Uses display:none (not *ngIf) so the
+   already-rendered canvases inside stay in the DOM and don't need to be
+   re-rasterized when the pane is reopened. */
+.cv-pane.cv-pane-hidden {
+  display: none;
 }
 
 /* ── Zoom controls (+ / − / reset), sit next to the Comment button ── */
@@ -220,12 +266,12 @@
   justify-content: center;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-top: none;
+  border-radius: 0;
   overflow: visible;
   min-height: 120px;
   cursor: default;
 }
-.cv-surface.pinning { cursor: crosshair; outline: 2px dashed var(--accent); outline-offset: -2px; }
 .cv-shot-img { max-width: 100%; display: block; }
 .cv-surface-pdf canvas, .cv-surface-pptx canvas { display: block; max-width: 100%; }
 .cv-page-spinner {
@@ -240,39 +286,245 @@
   pointer-events: none;
 }
 
-.cv-commentbox {
-  position: absolute;
-  max-width: 220px;
-  min-width: 90px;
-  background: rgba(255, 140, 0, 0.10);
-  border: 1.5px solid #ff9800;
+/* ── Item frame: wraps a surface (image/canvas) together with its toolbar
+     and attached comment box. inline-flex + align-items:stretch makes the
+     toolbar/box automatically match the surface's own rendered width,
+     whatever that width happens to be (zoom level, page size, screen size,
+     etc.), so the comment box always "attaches to the bottom edge" flush
+     with the page/slide/image above it. ── */
+.cv-item-frame {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 100%;
+}
+
+/* Toolbar now sits ABOVE the surface (top of each page/slide/screenshot) —
+   comment box itself still attaches to the bottom, see .cv-attached-box. */
+.cv-item-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  padding: 7px 10px;
+}
+.cv-item-toolbar-spacer { flex: 1; }
+.cv-item-statusbadge { display: flex; align-items: center; min-width: 0; }
+.cv-final-tag, .cv-pending-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-final-tag {
+  background: rgba(34, 197, 94, 0.14);
+  color: var(--success, #22c55e);
+}
+.cv-pending-tag {
+  background: rgba(139, 144, 167, 0.14);
+  color: var(--text-secondary, #8b90a7);
+}
+
+.cv-item-finalbtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
   border-radius: 6px;
-  padding: 5px 8px;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-}
-.cv-commentbox-text {
+  padding: 4px 10px;
   font-size: 11.5px;
-  line-height: 1.4;
-  color: #ffb74d;
-  word-break: break-word;
-  white-space: pre-wrap;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.cv-commentbox.resolved {
-  border-color: var(--success, #22c55e);
-  background: rgba(34, 197, 94, 0.10);
+.cv-item-finalbtn:hover:not(:disabled) { border-color: #22c55e; color: #22c55e; }
+.cv-item-finalbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cv-item-finalbtn.active {
+  background: rgba(34, 197, 94, 0.16);
+  border-color: #22c55e;
+  color: #22c55e;
 }
-.cv-commentbox.resolved .cv-commentbox-text { color: #6ee7a3; }
-.cv-commentbox-pending {
-  border-style: dashed;
-  border-color: var(--accent, #6366f1);
-  background: rgba(99, 102, 241, 0.12);
-  animation: cvPinPulse 1s ease-in-out infinite;
+
+.cv-item-commentbtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
-.cv-commentbox-pending .cv-commentbox-text { color: var(--accent, #6366f1); }
-@keyframes cvPinPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+.cv-item-commentbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cv-item-commentbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cv-item-commentbtn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.cv-item-commentcount {
+  background: rgba(0,0,0,0.18);
+  border-radius: 20px;
+  padding: 0px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.cv-item-commentbtn.active .cv-item-commentcount { background: rgba(255,255,255,0.25); }
+
+/* ── Comment box attached to the bottom edge of the item, same width as
+     the surface above it (see .cv-item-frame). Redesigned to feel like a
+     proper comment thread rather than a plain form. ── */
+.cv-attached-box {
+  flex: none;
+  width: 100%;
+  background: linear-gradient(180deg, var(--bg-surface, #13161e) 0%, var(--bg-elevated, #1a1e2a) 100%);
+  border: 1px solid var(--border-light, #2e3447);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+}
+.cv-attached-list { display: flex; flex-direction: column; gap: 10px; }
+.cv-attached-comment {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  background: var(--bg-elevated, #1a1e2a);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px 10px 14px;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.cv-attached-comment::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent, #6366f1);
+  opacity: 0.55;
+}
+.cv-attached-comment:hover { border-color: var(--border-light, #2e3447); }
+.cv-attached-comment.resolved { opacity: 0.55; }
+.cv-attached-comment.resolved::before { background: var(--success, #22c55e); }
+
+.cv-ac-avatar {
+  flex: none;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent, #6366f1), #8b5cf6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.cv-ac-body { flex: 1; min-width: 0; }
+
+.cv-ac-meta { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--text-muted); margin-bottom: 5px; flex-wrap: wrap; }
+.cv-ac-author { font-weight: 700; color: var(--text-primary); font-size: 11.5px; }
+.cv-ac-resolvedtag {
+  color: var(--success, #22c55e);
+  font-weight: 700;
+  background: rgba(34, 197, 94, 0.14);
+  border-radius: 20px;
+  padding: 1px 8px;
+}
+.cv-ac-text { font-size: 12.5px; line-height: 1.55; color: var(--text-primary); word-break: break-word; white-space: pre-wrap; }
+.cv-ac-actions { display: flex; gap: 6px; margin-top: 8px; }
+.cv-ac-actions button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.cv-ac-actions button:hover { border-color: var(--accent); color: var(--accent); }
+
+.cv-ac-edittext,
+.cv-attached-compose textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--bg-surface, #13161e);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cv-ac-edittext:focus,
+.cv-attached-compose textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim, rgba(99,102,241,0.12));
+}
+
+.cv-ac-editactions,
+.cv-attached-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cv-ac-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cv-ac-cancel:hover { border-color: var(--text-secondary); }
+.cv-ac-save {
+  background: linear-gradient(135deg, var(--accent, #6366f1), #8b5cf6);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.35);
+}
+.cv-ac-save:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.cv-ac-save:hover:not(:disabled) { filter: brightness(1.08); }
+
+.cv-attached-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px dashed var(--border-light, #2e3447);
+  border-radius: 12px;
+  padding: 10px;
+}
+.cv-attached-readonly {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 14px 0;
 }
 
 .cv-thumbstrip {
@@ -432,75 +684,13 @@
 }
 .cv-comment-actions button:hover { border-color: var(--accent); color: var(--accent); }
 
-.cv-compose {
+.cv-comments-hint {
   flex: none;
   border-top: 1px solid var(--border);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.cv-compose-pin-hint {
-  font-size: 11px;
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--accent-dim);
-  border-radius: 6px;
-  padding: 5px 9px;
-}
-.cv-compose-pin-hint button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13px; }
-.cv-compose textarea {
-  resize: vertical;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 8px 10px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 12.5px;
-  outline: none;
-}
-.cv-compose textarea:focus { border-color: var(--accent); }
-.cv-compose-submit {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 7px;
-  padding: 8px;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.cv-compose-submit:disabled { opacity: 0.4; cursor: not-allowed; }
-.cv-compose-submit:hover:not(:disabled) { background: var(--accent-hover); }
-
-/* ── Pinning banner ── */
-.cv-pinning-banner {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--accent);
-  color: #fff;
-  padding: 10px 18px;
-  border-radius: 30px;
-  font-size: 13px;
-  box-shadow: var(--shadow-lg);
-  z-index: 2100;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.cv-pinning-banner button {
-  background: rgba(255,255,255,0.2);
-  border: none;
-  color: #fff;
-  border-radius: 20px;
-  padding: 3px 10px;
+  padding: 10px 12px;
   font-size: 11.5px;
-  cursor: pointer;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 
 /* ── Responsive: stack panes on narrow screens ── */

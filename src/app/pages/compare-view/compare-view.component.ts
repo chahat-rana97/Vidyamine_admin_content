@@ -60,6 +60,22 @@ interface CommentPin {
   updated_at: string;
 }
 
+/**
+ * "Mark Final" state for one specific page/slide/screenshot (topic_id +
+ * doc_type + page_key). Separate from comments — this is a single flag per
+ * item, not a thread — so it's tracked in its own map instead of being
+ * folded into CommentPin.
+ */
+interface ItemStatus {
+  id?: number;
+  topic_id: number;
+  doc_type: CompareDocType;
+  page_key: string;
+  is_final: boolean | number;
+  marked_by: string | null;
+  updated_at?: string;
+}
+
 /** Runtime state for one side (left or right) of the split view. */
 interface PaneState {
   docType: CompareDocType | null;
@@ -116,10 +132,30 @@ export class CompareViewComponent implements OnInit, OnDestroy {
   comments: CommentPin[] = [];
   loadingComments = false;
   newCommentText = '';
-  pinningMode = false;
   activePaneSide: 'left' | 'right' = 'left';
-  pendingPin: { x: number; y: number } | null = null;
-  pendingPinSide: 'left' | 'right' | null = null;
+
+  /** Which single page/slide/screenshot currently has its comment box open — accordion-style, one at a time. */
+  openBox: { side: 'left' | 'right'; index: number } | null = null;
+  /** id of the comment currently being edited inline inside its attached box, if any. */
+  editingCommentId: number | null = null;
+  editingText = '';
+
+  /** Which pane (if any) is maximized to fill the split view, hiding the other pane/divider/comments panel. */
+  fullscreenSide: 'left' | 'right' | null = null;
+
+  /**
+   * Independent show/hide toggles for the three columns of the compare view
+   * (left pane, right pane, comments panel) — driven by the three header
+   * buttons. Distinct from fullscreenSide: fullscreen dedicates the whole
+   * split view to one pane, whereas these let any combination of the three
+   * columns be hidden (e.g. "just the two panes, no comments").
+   */
+  leftPaneOpen = true;
+  rightPaneOpen = true;
+  commentsPanelOpen = true;
+
+  /** Mark-final status per item, keyed by `${doc_type}::${page_key}`. */
+  itemStatuses: Record<string, ItemStatus> = {};
 
   // pptxViewer instances declared below, next to the render logic they support.
 
@@ -285,6 +321,7 @@ export class CompareViewComponent implements OnInit, OnDestroy {
     } finally {
       pane.loading = false;
       this.loadCommentsFor(side);
+      this.loadItemStatusesFor(side);
     }
   }
 
@@ -877,10 +914,11 @@ export class CompareViewComponent implements OnInit, OnDestroy {
       .sort((a, b) => a.pageIndex - b.pageIndex || (a.created_at > b.created_at ? 1 : -1));
   }
 
-  /** Scrolls a given side's pane so the item at `index` is in view — used when a comments-panel entry is clicked. */
+  /** Scrolls a given side's pane so the item at `index` is in view and opens its attached comment box — used when a comments-panel entry is clicked. */
   scrollToItem(side: 'left' | 'right', index: number) {
     const el = document.getElementById(side === 'left' ? `leftSurface-${index}` : `rightSurface-${index}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    this.openBox = { side, index };
   }
 
   commentsFor(side: 'left' | 'right'): CommentPin[] {
@@ -898,82 +936,90 @@ export class CompareViewComponent implements OnInit, OnDestroy {
     return this.comments.filter(c => c.doc_type === pane.docType && c.page_key === pageKey);
   }
 
-  startPinning(side: 'left' | 'right') {
-    if (!this.canWrite) return;
+  /**
+   * Opens (or closes, if already open) the comment box attached to the
+   * bottom edge of one specific page/slide/screenshot. Only one box is
+   * open at a time across both panes — accordion-style — so there's never
+   * ambiguity about which item a freshly-typed comment belongs to.
+   */
+  toggleCommentBox(side: 'left' | 'right', index: number) {
+    if (this.isBoxOpen(side, index)) {
+      this.closeCommentBox();
+      return;
+    }
+    this.openBox = { side, index };
+    this.newCommentText = '';
+    this.editingCommentId = null;
+    this.editingText = '';
     this.activePaneSide = side;
-    this.pinningMode = true;
   }
 
-  cancelPinning() {
-    this.pinningMode = false;
+  closeCommentBox() {
+    this.openBox = null;
+    this.newCommentText = '';
+    this.editingCommentId = null;
+    this.editingText = '';
   }
+
+  isBoxOpen(side: 'left' | 'right', index: number): boolean {
+    return !!this.openBox && this.openBox.side === side && this.openBox.index === index;
+  }
+
+  /** Human-readable noun for the compose placeholder — "page" / "slide" / "screenshot" — based on the side's doc type. */
+  itemNoun(side: 'left' | 'right'): string {
+    const dt = this.paneOf(side).docType;
+    if (dt === 'claude_pdf') return 'page';
+    if (dt === 'claude_ppt' || dt === 'gpt_ppt') return 'slide';
+    return 'screenshot';
+  }
+
+  /** Maximizes one pane to fill the whole split view (hiding the other pane, the divider, and the comments panel) — or restores the normal split if that pane is already maximized. */
+  toggleFullscreen(side: 'left' | 'right') {
+    this.fullscreenSide = this.fullscreenSide === side ? null : side;
+  }
+
+  // ============================================================
+  // PANE / COMMENTS PANEL VISIBILITY (three independent header toggles)
+  // ============================================================
 
   /**
-   * Resolves the actual visual content element within a surface — the
-   * canvas/img for PDF and screenshots, or the currently-visible pptx
-   * slide <div> for presentations. Pin math always measures against this
-   * element rather than the (possibly larger/scrollable) surface wrapper.
+   * Toggles one of the three columns (left pane / right pane / comments
+   * panel) on or off. Guards against ending up with nothing at all visible
+   * — if closing this column would leave all three hidden, the toggle is
+   * ignored rather than leaving a blank screen.
    */
-  private contentElOf(side: 'left' | 'right', surfaceEl?: HTMLElement | null): HTMLElement | null {
-    const el = surfaceEl ?? document.getElementById(side === 'left' ? 'leftSurface-0' : 'rightSurface-0');
-    return (el?.querySelector('canvas, img') as HTMLElement | null) ?? null;
+  togglePaneVisibility(which: 'left' | 'right' | 'comments') {
+    const nextLeft = which === 'left' ? !this.leftPaneOpen : this.leftPaneOpen;
+    const nextRight = which === 'right' ? !this.rightPaneOpen : this.rightPaneOpen;
+    const nextComments = which === 'comments' ? !this.commentsPanelOpen : this.commentsPanelOpen;
+
+    if (!nextLeft && !nextRight && !nextComments) {
+      this.toast.error("Can't close all three — at least one panel must stay open.");
+      return;
+    }
+
+    this.leftPaneOpen = nextLeft;
+    this.rightPaneOpen = nextRight;
+    this.commentsPanelOpen = nextComments;
   }
 
-  onSurfaceClick(side: 'left' | 'right', event: MouseEvent, surfaceEl: HTMLElement, index: number = 0) {
-    if (!this.pinningMode || side !== this.activePaneSide) return;
-
-    // Find the actual visual content element rather than the scrollable
-    // surface wrapper, since the wrapper can be larger than the content
-    // (e.g. a short/narrow PDF page inside a tall pane).
-    const contentEl = this.contentElOf(side, surfaceEl);
-    const rect = (contentEl ?? surfaceEl).getBoundingClientRect();
-    const displayedX = event.clientX - rect.left;
-    const displayedY = event.clientY - rect.top;
-
-    // Convert from displayed (possibly CSS-scaled) pixels to natural page
-    // pixel space, which is what gets stored in the DB and is comparable
-    // across zoom levels/screen sizes. Falls back to the displayed size
-    // (i.e. no scaling) if we don't have a recorded natural size yet.
-    const pane = this.paneOf(side);
-    const natural = pane.naturalSize ?? { width: rect.width, height: rect.height };
-    const scaleX = rect.width > 0 ? natural.width / rect.width : 1;
-    const scaleY = rect.height > 0 ? natural.height / rect.height : 1;
-
-    // Vertical list means the item clicked might not be the pane's current
-    // activeIndex — set it now so the comment gets attached to the right
-    // page_key and the comments panel/composer reflects the clicked item.
-    pane.activeIndex = index;
-
-    this.pendingPin = { x: displayedX * scaleX, y: displayedY * scaleY };
-    this.pendingPinSide = side;
-    this.pinningMode = false;
-    this.activePaneSide = side;
-    this.loadCommentsFor(side);
+  /** Effective width % for the left pane — expands to fill the row if the right pane is hidden. */
+  get leftEffectiveWidth(): number {
+    if (!this.rightPaneOpen) return 100;
+    return this.leftWidthPct;
   }
 
-  /**
-   * Converts a stored pin's natural-space x/y into the displayed pixel
-   * position for the given side's surface right now, so pins stay visually
-   * correct regardless of how the canvas/image/slide is currently scaled.
-   * Used by the template instead of binding [style.left.px]="c.x" directly.
-   */
-  pinDisplayPos(side: 'left' | 'right', c: { x: number | null; y: number | null }, surfaceEl?: HTMLElement | null): { x: number; y: number } {
-    if (c.x == null || c.y == null) return { x: 0, y: 0 };
-    const pane = this.paneOf(side);
-    if (!pane.naturalSize) return { x: c.x, y: c.y }; // best effort until natural size is known
-    const contentEl = this.contentElOf(side, surfaceEl);
-    if (!contentEl) return { x: c.x, y: c.y };
-    const rect = contentEl.getBoundingClientRect();
-    const scaleX = pane.naturalSize.width > 0 ? rect.width / pane.naturalSize.width : 1;
-    const scaleY = pane.naturalSize.height > 0 ? rect.height / pane.naturalSize.height : 1;
-    return { x: c.x * scaleX, y: c.y * scaleY };
+  /** Effective width % for the right pane — expands to fill the row if the left pane is hidden. */
+  get rightEffectiveWidth(): number {
+    if (!this.leftPaneOpen) return 100;
+    return 100 - this.leftWidthPct;
   }
 
-  submitComment(side: 'left' | 'right') {
+  submitItemComment(side: 'left' | 'right', index: number) {
     const text = this.newCommentText.trim();
     if (!text || !this.topicId) return;
     const pane = this.paneOf(side);
-    const pageKey = this.currentPageKey(side);
+    const pageKey = pane.items[index]?.pageKey;
     if (!pane.docType || !pageKey) return;
 
     const body: any = {
@@ -981,18 +1027,12 @@ export class CompareViewComponent implements OnInit, OnDestroy {
       page_key: pageKey,
       text
     };
-    if (this.pendingPin) {
-      body.x = this.pendingPin.x;
-      body.y = this.pendingPin.y;
-    }
 
     this.api.post<any>(`/topics/${this.topicId}/comparison-comments`, body).subscribe({
       next: (r: any) => {
         if (r?.status && r?.data) {
           this.comments = [...this.comments, r.data];
           this.newCommentText = '';
-          this.pendingPin = null;
-          this.pendingPinSide = null;
         } else {
           this.toast.error(r?.message || 'Failed to add comment');
         }
@@ -1010,6 +1050,39 @@ export class CompareViewComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Opens inline edit mode for a comment, directly inside its attached box. */
+  startEditComment(comment: CommentPin) {
+    this.editingCommentId = comment.id;
+    this.editingText = comment.text;
+  }
+
+  cancelEditComment() {
+    this.editingCommentId = null;
+    this.editingText = '';
+  }
+
+  /**
+   * Saves an inline edit. Requires a `POST /comparison-comments/{id}/update`
+   * route on the backend (same pattern as the existing `/resolve` route) —
+   * add it alongside that one if it doesn't exist yet.
+   */
+  saveEditComment(comment: CommentPin) {
+    const text = this.editingText.trim();
+    if (!text) return;
+    this.api.post<any>(`/comparison-comments/${comment.id}/update`, { text }).subscribe({
+      next: (r: any) => {
+        if (r?.status) {
+          comment.text = text;
+          this.editingCommentId = null;
+          this.editingText = '';
+        } else {
+          this.toast.error(r?.message || 'Failed to update comment');
+        }
+      },
+      error: () => this.toast.error('Failed to update comment')
+    });
+  }
+
   deleteComment(comment: CommentPin) {
     if (!confirm('Delete this comment?')) return;
     this.api.delete<any>(`/comparison-comments/${comment.id}`).subscribe({
@@ -1024,9 +1097,72 @@ export class CompareViewComponent implements OnInit, OnDestroy {
     });
   }
 
-  cancelPendingPin() {
-    this.pendingPin = null;
-    this.pendingPinSide = null;
-    this.newCommentText = '';
+  // ============================================================
+  // MARK FINAL / PENDING (per page, slide, or screenshot)
+  // ============================================================
+
+  private itemStatusKey(docType: CompareDocType, pageKey: string): string {
+    return `${docType}::${pageKey}`;
+  }
+
+  /** Loads the mark-final status of every item for the given side's current doc type. */
+  loadItemStatusesFor(side: 'left' | 'right') {
+    const pane = this.paneOf(side);
+    if (!pane.docType || !this.topicId) return;
+
+    this.api.get<any>(`/topics/${this.topicId}/item-status?doc_type=${pane.docType}`).subscribe({
+      next: (r: any) => {
+        const docType = pane.docType as CompareDocType;
+        // Drop any previously-loaded statuses for this doc_type before
+        // merging in the fresh set, same "replace this slice" pattern used
+        // by loadCommentsFor() for the comments array.
+        const kept: Record<string, ItemStatus> = {};
+        for (const key of Object.keys(this.itemStatuses)) {
+          if (!key.startsWith(`${docType}::`)) kept[key] = this.itemStatuses[key];
+        }
+        for (const status of (r?.data || []) as ItemStatus[]) {
+          kept[this.itemStatusKey(status.doc_type, status.page_key)] = status;
+        }
+        this.itemStatuses = kept;
+      },
+      error: () => { /* non-fatal — items just show as "not marked" */ }
+    });
+  }
+
+  /** Current mark-final status for a specific item, or undefined if it has never been marked either way. */
+  statusFor(side: 'left' | 'right', index: number): ItemStatus | undefined {
+    const pane = this.paneOf(side);
+    const pageKey = pane.items[index]?.pageKey;
+    if (!pane.docType || !pageKey) return undefined;
+    return this.itemStatuses[this.itemStatusKey(pane.docType, pageKey)];
+  }
+
+  isFinal(side: 'left' | 'right', index: number): boolean {
+    return !!this.statusFor(side, index)?.is_final;
+  }
+
+  /** Flips a page/slide/screenshot between "final" and "pending", recording who did it. */
+  toggleFinal(side: 'left' | 'right', index: number) {
+    const pane = this.paneOf(side);
+    const pageKey = pane.items[index]?.pageKey;
+    if (!pane.docType || !pageKey || !this.topicId) return;
+    const docType = pane.docType;
+
+    this.api.post<any>(`/topics/${this.topicId}/item-status/toggle`, {
+      doc_type: docType,
+      page_key: pageKey
+    }).subscribe({
+      next: (r: any) => {
+        if (r?.status && r?.data) {
+          this.itemStatuses = {
+            ...this.itemStatuses,
+            [this.itemStatusKey(docType, pageKey)]: r.data
+          };
+        } else {
+          this.toast.error(r?.message || 'Failed to update status');
+        }
+      },
+      error: () => this.toast.error('Failed to update status')
+    });
   }
 }
