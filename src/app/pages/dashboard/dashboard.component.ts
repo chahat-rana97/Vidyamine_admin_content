@@ -1,8 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
-import { RouterLink } from '@angular/router';
+import { RouterLink, Router } from '@angular/router';
 
 interface StatCard {
   label: string;
@@ -72,7 +72,7 @@ type TrendRange = '6m' | '12m';
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.css']
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   loading = true;
   loadError = false;
   today = new Date();
@@ -119,9 +119,15 @@ export class DashboardComponent implements OnInit {
   // ---- this-month vs last-month snapshot ----
   monthComparison: { label: string; thisMonth: number; lastMonth: number; deltaPct: number }[] = [];
 
-  constructor(private api: ApiService, public auth: AuthService) {}
+  // ---- notifications (topic assignments etc.) ----
+  notifications: any[] = [];
+  loadingNotifications = false;
+  markingAllRead = false;
+
+  constructor(private api: ApiService, public auth: AuthService, private router: Router) {}
 
   ngOnInit() {
+    this.loadNotifications();
     Promise.all([
       this.api.get<any>('/admin/users').toPromise().catch(() => null),
       this.api.get<any>('/boards').toPromise().catch(() => null),
@@ -560,5 +566,109 @@ export class DashboardComponent implements OnInit {
 
   max2(a: number, b: number): number {
     return Math.max(a, b);
+  }
+
+  // ============================================================
+  // NOTIFICATIONS (e.g. "X assigned you a topic")
+  // ============================================================
+
+  private notifPollHandle: any = null;
+  private knownNotificationIds = new Set<number>();
+  private hasLoadedNotificationsOnce = false;
+
+  get unreadNotifications() {
+    return this.notifications.filter(n => !n.is_read);
+  }
+
+  loadNotifications() {
+    this.loadingNotifications = true;
+    this.api.get<any>('/notifications').subscribe({
+      next: (r: any) => {
+        const list = Array.isArray(r?.data) ? r.data : [];
+
+        // Play a sound only for notifications that are new since the last
+        // load (not on the very first load, so opening the dashboard with
+        // existing unread items doesn't beep every time).
+        if (this.hasLoadedNotificationsOnce) {
+          const hasNewUnread = list.some((n: any) => !n.is_read && !this.knownNotificationIds.has(Number(n.id)));
+          if (hasNewUnread) this.playNotificationSound();
+        }
+
+        this.knownNotificationIds = new Set(list.map((n: any) => Number(n.id)));
+        this.hasLoadedNotificationsOnce = true;
+
+        this.notifications = list;
+        this.loadingNotifications = false;
+      },
+      error: () => { this.loadingNotifications = false; }
+    });
+
+    // Poll every 30s so a running dashboard tab picks up new assignments
+    // (and plays the sound) without needing a manual refresh.
+    if (!this.notifPollHandle) {
+      this.notifPollHandle = setInterval(() => this.loadNotifications(), 30000);
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.notifPollHandle) clearInterval(this.notifPollHandle);
+  }
+
+  /** Short two-tone beep via Web Audio API — no sound file/asset needed. */
+  private playNotificationSound() {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const playTone = (freq: number, start: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + duration + 0.02);
+      };
+      playTone(880, 0, 0.12);
+      playTone(1175, 0.13, 0.16);
+    } catch {
+      // Audio not available (e.g. autoplay-blocked before any user interaction) — ignore.
+    }
+  }
+
+  markNotificationRead(n: any) {
+    if (n.is_read) return;
+    this.api.put<any>(`/notifications/${n.id}/read`, {}).subscribe({
+      next: (r: any) => { if (r?.status) n.is_read = 1; },
+      error: () => {}
+    });
+  }
+
+  markAllNotificationsRead() {
+    if (!this.unreadNotifications.length) return;
+    this.markingAllRead = true;
+    this.api.put<any>('/notifications/read-all', {}).subscribe({
+      next: (r: any) => {
+        this.markingAllRead = false;
+        if (r?.status) this.notifications.forEach(n => n.is_read = 1);
+      },
+      error: () => { this.markingAllRead = false; }
+    });
+  }
+
+  notificationTimeAgo(dateStr: string): string {
+    return this.timeAgo(dateStr);
+  }
+
+  /** Navigates to the Topics screen for the topic this notification refers to,
+   *  and marks the notification as read along the way. */
+  openNotificationTopic(n: any) {
+    this.markNotificationRead(n);
+    if (!n.chapter_id) return;
+    this.router.navigate(['/topics'], { queryParams: { chapter_id: n.chapter_id } });
   }
 }

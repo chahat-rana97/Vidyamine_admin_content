@@ -379,10 +379,10 @@
   width: 150px;
 }
 .vm-table .col-bookcode {
-  width: 110px;
+  width: 260px;
 }
 .vm-table .col-chaptercode {
-  width: 220px;
+  width: 260px;
 }
 .vm-table .col-name {
   width: 180px;
@@ -448,8 +448,8 @@
   border: 1px solid color-mix(in srgb, var(--c-primary) 40%, var(--c-border));
   padding: 3px 8px;
   letter-spacing: 0.01em;
-  word-break: break-word;
-  white-space: normal;
+  word-break: normal;
+  white-space: nowrap;
   display: inline-block;
   line-height: 1.4;
 }
@@ -458,7 +458,8 @@
   font-family: monospace;
   font-size: 10px;
   color: var(--c-text-muted);
-  word-break: break-word;
+  word-break: normal;
+  white-space: nowrap;
 }
 
 .chapter-code-pill--highlight {
@@ -470,9 +471,9 @@
   padding: 4px 9px;
   border-radius: 4px;
   display: inline-block;
-  word-break: break-word;
+  word-break: normal;
   line-height: 1.4;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .entity-name {

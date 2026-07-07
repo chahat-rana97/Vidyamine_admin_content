@@ -386,7 +386,7 @@
 
       <div class="form-group">
         <label>Confidence</label>
-        <select [(ngModel)]="form.confidence">
+        <select [ngModel]="form.confidence" (ngModelChange)="onConfidenceChange($event)">
           <option value="Unverified">Unverified</option>
           <option value="Verified">Verified</option>
         </select>
@@ -447,8 +447,11 @@
       </div>
 
       <div class="form-group">
-        <label>Checked By</label>
-        <input type="text" [(ngModel)]="form.checked_by" placeholder="e.g. Malhar" />
+        <label>
+          Checked By
+          <small class="label-note">Auto-filled on verify · read-only</small>
+        </label>
+        <input type="text" [ngModel]="form.checked_by" placeholder="Auto-fills when marked Verified…" readonly disabled />
       </div>
 
       <!-- ── Settings ── -->

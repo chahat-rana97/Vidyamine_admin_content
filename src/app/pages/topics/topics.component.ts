@@ -24,6 +24,11 @@ const TRACK_ICON: Record<TrackType, string> = {
   script: '📝', slide: '📊', quiz: '❓', exer: '🧮'
 };
 
+/** Hardcoded unlock key for reverting a topic from Final back to Pending.
+ *  TODO: move this check server-side once the backend enforces it (the
+ *  PUT /topics/{id}/status route already accepts an unlock_key param). */
+const FINAL_UNLOCK_KEY = 'vmunlock23';
+
 /**
  * Slide-tile document types. Each maps to a DB column + a filename
  * suffix that the uploaded file's basename must exactly match:
@@ -141,6 +146,21 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
   autofillingTopicId: { [topicId: number]: boolean } = {};
   fillingAllCaptions = false;
 
+  // ── Assignable users (for the "assign to" dropdown + filter) ──
+  assignableUsers: any[] = [];
+  loadingUsers = false;
+  assigningTopicId: { [topicId: number]: boolean } = {};
+
+  // ── Combined filter: '' = all, 'status:final' / 'status:pending', or 'user:<id>' ──
+  topicFilter: string = '';
+  filteredTopics: any[] = [];
+
+  // ── Final <-> Pending status change, unlock modal state ──
+  savingStatusId: { [topicId: number]: boolean } = {};
+  unlockModal: { open: boolean; topic: any | null; keyInput: string; error: string } = {
+    open: false, topic: null, keyInput: '', error: ''
+  };
+
   constructor(
     private api: ApiService,
     private toast: ToastService,
@@ -172,6 +192,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.loadChapter();
     this.load();
+    this.loadAssignableUsers();
   }
 
   get canWrite() {
@@ -375,15 +396,48 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
         const list = Array.isArray(r?.data) ? r.data : [];
         list.sort((a: any, b: any) => Number(a.sequence) - Number(b.sequence));
         this.topics = list.map((t: any) => this.hydrateTopic(t));
+        this.applyTopicFilter();
         this.loading = false;
       },
       error: () => {
         this.topics = [];
+        this.filteredTopics = [];
         this.loading = false;
         this.toast.error('Failed to load topics');
       }
     });
   }
+
+  loadAssignableUsers() {
+    this.loadingUsers = true;
+    this.api.get<any>('/admin/users-assignable').subscribe({
+      next: (r: any) => {
+        this.assignableUsers = Array.isArray(r?.data) ? r.data : [];
+        this.loadingUsers = false;
+      },
+      error: () => { this.loadingUsers = false; }
+    });
+  }
+
+  /** Applies the combined user/status filter dropdown to `this.topics` -> `this.filteredTopics`. */
+  applyTopicFilter() {
+    if (!this.topicFilter) {
+      this.filteredTopics = this.topics;
+      return;
+    }
+    if (this.topicFilter === 'status:final') {
+      this.filteredTopics = this.topics.filter(t => t.topic_status === 'final');
+    } else if (this.topicFilter === 'status:pending') {
+      this.filteredTopics = this.topics.filter(t => (t.topic_status || 'pending') === 'pending');
+    } else if (this.topicFilter.startsWith('user:')) {
+      const uid = this.topicFilter.slice(5);
+      this.filteredTopics = this.topics.filter(t => String(t.assigned_to) === uid);
+    } else {
+      this.filteredTopics = this.topics;
+    }
+  }
+
+  onTopicFilterChange() { this.applyTopicFilter(); }
 
   /** Adds UI-only scaffolding (tracks placeholder, parsed screenshots array) onto a raw topic row. */
   private hydrateTopic(t: any): any {
@@ -398,6 +452,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     return {
       ...t,
+      topic_status: t.topic_status || 'pending',
       _screenshots: screenshots,
       _tracks: TRACK_TYPES.reduce((acc, type) => {
         acc[type] = { status: 'empty', versions: [] };
@@ -758,6 +813,12 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.persistReorder();
   }
 
+  /** Real index of a topic within the unfiltered `this.topics` array — used by
+   *  the move up/down buttons, which are disabled whenever a filter is active. */
+  topicIndex(t: any): number {
+    return this.topics.findIndex(x => x.id === t.id);
+  }
+
   private persistReorder() {
     const payload = {
       chapter_id: this.chapterId,
@@ -1052,6 +1113,104 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
         else this.toast.error(r?.message || 'Failed to update status');
       },
       error: () => this.toast.error('Failed to update status')
+    });
+  }
+
+  // ============================================================
+  // FINAL / PENDING TOPIC STATUS
+  // ============================================================
+
+  isFinal(t: any): boolean { return t.topic_status === 'final'; }
+
+  /** Click handler on the Final/Pending badge. Marking Final is immediate;
+   *  reverting Final -> Pending opens the unlock-key modal first. */
+  onStatusBadgeClick(t: any) {
+    if (!this.isFinal(t)) {
+      this.setTopicStatus(t, 'final');
+    } else {
+      this.openUnlockModal(t);
+    }
+  }
+
+  private setTopicStatus(t: any, status: 'pending' | 'final', unlockKey?: string) {
+    this.savingStatusId[t.id] = true;
+    this.api.put<any>(`/topics/${t.id}/status`, { status, unlock_key: unlockKey || null }).subscribe({
+      next: (r: any) => {
+        this.savingStatusId[t.id] = false;
+        if (r?.status) {
+          t.topic_status = status;
+          t.status_by = this.auth.user?.name || t.status_by;
+          this.toast.success(status === 'final' ? 'Marked as Final' : 'Reverted to Pending');
+          this.applyTopicFilter();
+        } else {
+          this.toast.error(r?.message || 'Failed to update status');
+        }
+      },
+      error: () => { this.savingStatusId[t.id] = false; this.toast.error('Failed to update status'); }
+    });
+  }
+
+  openUnlockModal(t: any) {
+    this.unlockModal = { open: true, topic: t, keyInput: '', error: '' };
+  }
+
+  closeUnlockModal() {
+    this.unlockModal = { open: false, topic: null, keyInput: '', error: '' };
+  }
+
+  confirmUnlock() {
+    const t = this.unlockModal.topic;
+    if (!t) return;
+    if (this.unlockModal.keyInput !== FINAL_UNLOCK_KEY) {
+      this.unlockModal.error = 'Incorrect key. Try again.';
+      return;
+    }
+    this.setTopicStatus(t, 'pending', this.unlockModal.keyInput);
+    this.closeUnlockModal();
+  }
+
+  // ============================================================
+  // TOPIC ASSIGNMENT
+  // ============================================================
+
+  onAssigneeChange(t: any, userId: any) {
+    if (!userId) {
+      this.unassignTopic(t);
+      return;
+    }
+    this.assigningTopicId[t.id] = true;
+    this.api.put<any>(`/topics/${t.id}/assign`, { assigned_to: userId }).subscribe({
+      next: (r: any) => {
+        this.assigningTopicId[t.id] = false;
+        if (r?.status) {
+          t.assigned_to = userId;
+          const u = this.assignableUsers.find(x => String(x.id) === String(userId));
+          t.assigned_to_name = u?.name || t.assigned_to_name;
+          this.toast.success(`Assigned to ${t.assigned_to_name || 'user'}`);
+          this.applyTopicFilter();
+        } else {
+          this.toast.error(r?.message || 'Failed to assign topic');
+        }
+      },
+      error: () => { this.assigningTopicId[t.id] = false; this.toast.error('Failed to assign topic'); }
+    });
+  }
+
+  unassignTopic(t: any) {
+    this.assigningTopicId[t.id] = true;
+    this.api.delete<any>(`/topics/${t.id}/assign`).subscribe({
+      next: (r: any) => {
+        this.assigningTopicId[t.id] = false;
+        if (r?.status) {
+          t.assigned_to = null;
+          t.assigned_to_name = null;
+          this.toast.success('Topic unassigned');
+          this.applyTopicFilter();
+        } else {
+          this.toast.error(r?.message || 'Failed to unassign topic');
+        }
+      },
+      error: () => { this.assigningTopicId[t.id] = false; this.toast.error('Failed to unassign topic'); }
     });
   }
 

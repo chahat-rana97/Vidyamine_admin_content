@@ -631,13 +631,28 @@ export class CompareViewComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Gives the pptx canvas an explicit logical (CSS) size before render, so
-   * PptxViewJS's own internal sizing (which reads the canvas's current
-   * layout size) has something real to work with. Uses the DECK'S OWN
-   * aspect ratio (read from the .pptx file itself, see initPptxViewer())
-   * rather than assuming 16:9 — assuming a fixed ratio squeezed/stretched
-   * every slide's content whenever the real deck was 4:3 or any other size,
-   * which is what misaligned text and images compared to the source file.
+   * Gives the pptx canvas an explicit size before render, so PptxViewJS's
+   * own internal layout math (which reads the canvas's pixel dimensions —
+   * NOT its CSS display size) has the right numbers to work with. Uses the
+   * DECK'S OWN aspect ratio (read from the .pptx file itself, see
+   * initPptxViewer()) rather than assuming 16:9 — assuming a fixed ratio
+   * squeezed/stretched every slide's content whenever the real deck was
+   * 4:3 or any other size.
+   *
+   * FIX: this previously only set canvas.style.width/height (the CSS
+   * display box). It never set canvas.width/canvas.height — the canvas's
+   * actual drawing-buffer size, which is what PptxViewJS reads to compute
+   * every shape/textbox's absolute position and scale on the slide. With
+   * the buffer left at its default (or a stale size from a previous
+   * render), PptxViewJS was laying out every element against the wrong
+   * internal pixel space while the browser stretched the result to fit
+   * our CSS box — producing exactly the misaligned/overlapping text boxes
+   * and shifted chart labels seen on screen, even though the source .pptx
+   * itself was fine. Now, both the drawing-buffer size (used by the
+   * renderer, scaled by devicePixelRatio for crisp text) and the CSS
+   * display size (used by the browser to fit the pane) are set explicitly,
+   * matching the same dual-size pattern already used for PDF pages in
+   * renderPdfPage().
    *
    * Measures off the pane's scrollable body (.cv-pane-body), NOT the
    * canvas's own immediate wrapper (.cv-surface-pptx) — that wrapper is a
@@ -651,8 +666,18 @@ export class CompareViewComponent implements OnInit, OnDestroy {
     const availableWidth = Math.max(320, (paneBody?.clientWidth || 900) - 48); // margin for padding
     const width = Math.min(1280, availableWidth);
     const height = Math.round(width / aspectRatio);
+
+    // CSS display size — what the browser fits into the pane's layout.
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
+
+    // Drawing-buffer size — what PptxViewJS actually renders shapes/text
+    // into. Scaled by devicePixelRatio so text stays sharp on hi-DPI
+    // screens instead of looking blurry once the browser stretches a
+    // low-res buffer up to the CSS box.
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
   }
 
   // Same generation-token guard as renderPdfPage(), for the same reason:

@@ -35,6 +35,16 @@
     </ng-template>
 
     <div class="strip-right" *ngIf="canWrite">
+      <select class="tbtn topic-filter-select" [(ngModel)]="topicFilter" (ngModelChange)="onTopicFilterChange()">
+        <option value="">All topics</option>
+        <optgroup label="Status">
+          <option value="status:final">Final</option>
+          <option value="status:pending">Pending</option>
+        </optgroup>
+        <optgroup label="Assigned to" *ngIf="assignableUsers.length">
+          <option *ngFor="let u of assignableUsers" [value]="'user:' + u.id">{{ u.name }}</option>
+        </optgroup>
+      </select>
       <button class="tbtn" (click)="triggerImportPicker(importPicker)">＋ Add new topic</button>
       <button
         class="tbtn"
@@ -98,7 +108,7 @@
   <!-- Topic rows -->
   <div class="topic-list" *ngIf="!loading; else loadingTpl">
 
-    <div class="topic-row" *ngFor="let t of topics; let i = index">
+    <div class="topic-row" *ngFor="let t of filteredTopics; let i = index">
 
       <!-- ── Left: screenshots panel ── -->
       <div class="shotcell">
@@ -139,14 +149,44 @@
         </div>
 
         <div class="row-icons">
-          <button class="iconbtn" title="Move up" (click)="moveTopic(i, -1)" [disabled]="i === 0">▲</button>
-          <button class="iconbtn" title="Move down" (click)="moveTopic(i, 1)" [disabled]="i === topics.length - 1">▼</button>
+          <button class="iconbtn" title="Move up" (click)="moveTopic(topicIndex(t), -1)" [disabled]="topicFilter || topicIndex(t) === 0">▲</button>
+          <button class="iconbtn" title="Move down" (click)="moveTopic(topicIndex(t), 1)" [disabled]="topicFilter || topicIndex(t) === topics.length - 1">▼</button>
           <button
             class="status-toggle-badge"
             [ngClass]="isActive(t) ? 'status-active' : 'status-inactive'"
             (click)="toggleStatus(t)"
           >{{ isActive(t) ? 'Active' : 'Inactive' }}</button>
-          <button class="iconbtn del" title="Delete topic" *ngIf="canDelete" (click)="confirmDelete(t)">🗑</button>
+          <button
+            class="iconbtn del"
+            *ngIf="canDelete"
+            title="Delete topic"
+            (click)="confirmDelete(t)"
+          >🗑</button>
+        </div>
+
+        <!-- ── Final / Pending — own row, prominent, green when Final ── -->
+        <div class="final-status-row">
+          <button
+            class="status-toggle-badge final-badge"
+            [ngClass]="isFinal(t) ? 'status-final' : 'status-pending'"
+            [disabled]="savingStatusId[t.id]"
+            (click)="onStatusBadgeClick(t)"
+            [title]="isFinal(t) ? 'Click to revert to Pending (requires unlock key)' : 'Click to mark as Final'"
+          >{{ savingStatusId[t.id] ? '…' : (isFinal(t) ? '✓ Final' : 'Pending') }}</button>
+        </div>
+
+        <!-- ── Assign to user ── -->
+        <div class="assign-row">
+          <span class="assign-label">Assigned to</span>
+          <select
+            class="assign-select"
+            [ngModel]="t.assigned_to || ''"
+            (ngModelChange)="onAssigneeChange(t, $event)"
+            [disabled]="assigningTopicId[t.id]"
+          >
+            <option value="">— Unassigned —</option>
+            <option *ngFor="let u of assignableUsers" [value]="u.id">{{ u.name }}</option>
+          </select>
         </div>
 
         <!-- ── YouTube link row (below swap/status/delete row) ── -->
@@ -263,15 +303,26 @@
         </div>
 
 
-        <!-- ── Created By / Updated By (visible to superadmin & admin only) ── -->
+        <!-- ── Updated By / Status By (visible to superadmin & admin only) ──
+             Each rendered as its own colored capsule for quick scanning. -->
         <div class="audit-strip" *ngIf="canDelete">
-          <span class="audit-line" title="Created by">Created by: {{ t.created_by || '—' }}</span>
-          <span class="audit-line" title="Last updated by">Updated by: {{ t.updated_by || '—' }}</span>
+          <span class="audit-pill audit-pill-updated" title="Last updated by">
+            <span class="audit-pill-label">Updated by</span>
+            <span class="audit-pill-value">{{ t.updated_by || '—' }}</span>
+          </span>
+          <span
+            class="audit-pill audit-pill-status"
+            [ngClass]="isFinal(t) ? 'audit-pill-status-final' : 'audit-pill-status-pending'"
+            [title]="isFinal(t) ? 'Marked Final by' : 'Marked Pending by'"
+          >
+            <span class="audit-pill-label">Marked {{ isFinal(t) ? 'Final' : 'Pending' }} by</span>
+            <span class="audit-pill-value">{{ t.status_by || '—' }}</span>
+          </span>
         </div>
       </div>
     </div>
 
-    <div class="empty-state" *ngIf="!topics.length">
+    <div class="empty-state" *ngIf="!filteredTopics.length">
       <div class="empty-icon">▤</div>
       <p>No topics yet for this chapter</p>
       <button class="tbtn" (click)="triggerImportPicker(importPicker)" *ngIf="canWrite">＋ Add first topic</button>
@@ -755,5 +806,32 @@
       </div>
     </ng-container>
 
+  </div>
+</div>
+
+<!-- ── UNLOCK KEY MODAL (Final -> Pending) ── -->
+<div class="unlock-modal-backdrop" *ngIf="unlockModal.open" (click)="closeUnlockModal()">
+  <div class="unlock-modal" (click)="$event.stopPropagation()">
+    <div class="unlock-modal-head">
+      <span class="unlock-modal-icon">🔒</span>
+      <h3>Revert to Pending</h3>
+    </div>
+    <p class="unlock-modal-sub">
+      "<strong>{{ unlockModal.topic?.name || 'This topic' }}</strong>" is marked Final.
+      Enter the unlock key to move it back to Pending.
+    </p>
+    <input
+      type="password"
+      class="unlock-modal-input"
+      [(ngModel)]="unlockModal.keyInput"
+      placeholder="Enter unlock key…"
+      (keyup.enter)="confirmUnlock()"
+      autofocus
+    />
+    <div class="unlock-modal-error" *ngIf="unlockModal.error">{{ unlockModal.error }}</div>
+    <div class="unlock-modal-actions">
+      <button class="unlock-btn unlock-btn--cancel" (click)="closeUnlockModal()">Cancel</button>
+      <button class="unlock-btn unlock-btn--confirm" (click)="confirmUnlock()">Unlock &amp; Revert</button>
+    </div>
   </div>
 </div>

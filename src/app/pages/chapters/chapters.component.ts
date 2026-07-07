@@ -553,6 +553,35 @@ export class ChaptersComponent implements OnInit {
 
   toggleActive() { this.form.is_active = this.form.is_active ? 0 : 1; }
 
+  /** Current logged-in user's display name, used to auto-stamp "Checked By". */
+  get currentUserName(): string {
+    return this.auth.user?.name || this.auth.user?.email || '';
+  }
+
+  /**
+   * Fires when the Confidence dropdown changes.
+   * - Marking "Verified" auto-fills Checked By with the logged-in user and locks it.
+   * - Reverting to "Unverified" is only allowed if the logged-in user is the same
+   *   person who verified it; otherwise the change is blocked and reverted.
+   */
+  onConfidenceChange(newValue: string) {
+    if (newValue === 'Verified') {
+      this.form.confidence = 'Verified';
+      this.form.checked_by = this.currentUserName;
+      return;
+    }
+
+    // Trying to set back to Unverified
+    if (this.form.checked_by && this.form.checked_by !== this.currentUserName) {
+      this.toast.error(`Only ${this.form.checked_by} can mark this as Unverified`);
+      this.form.confidence = 'Verified'; // revert the dropdown
+      return;
+    }
+
+    this.form.confidence = 'Unverified';
+    this.form.checked_by = '';
+  }
+
   // ============================================================
   // PDF UPLOAD / VIEWER
   // ============================================================
@@ -643,7 +672,7 @@ export class ChaptersComponent implements OnInit {
       confidence:   this.form.confidence || 'Unverified',
       file_name:    this.form.file_name?.trim() || null,
       book_name:    this.form.book_name || null,
-      checked_by:   this.form.checked_by?.trim() || null,
+      checked_by:   this.form.confidence === 'Verified' ? (this.form.checked_by?.trim() || this.currentUserName) : null,
       is_active:    Number(this.form.is_active)
     };
 
