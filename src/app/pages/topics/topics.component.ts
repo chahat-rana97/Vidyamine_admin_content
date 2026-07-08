@@ -427,6 +427,8 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     if (this.topicFilter === 'status:final') {
       this.filteredTopics = this.topics.filter(t => t.topic_status === 'final');
+    } else if (this.topicFilter === 'status:pre_final') {
+      this.filteredTopics = this.topics.filter(t => t.topic_status === 'pre_final');
     } else if (this.topicFilter === 'status:pending') {
       this.filteredTopics = this.topics.filter(t => (t.topic_status || 'pending') === 'pending');
     } else if (this.topicFilter.startsWith('user:')) {
@@ -1121,10 +1123,21 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
   // ============================================================
 
   isFinal(t: any): boolean { return t.topic_status === 'final'; }
+  isPreFinal(t: any): boolean { return t.topic_status === 'pre_final'; }
 
-  /** Click handler on the Final/Pending badge. Marking Final is immediate;
-   *  reverting Final -> Pending opens the unlock-key modal first. */
+  /** Label used for the audit pill, matching whichever of the three states the topic is currently in. */
+  statusLabel(t: any): string {
+    if (this.isFinal(t)) return 'Final';
+    if (this.isPreFinal(t)) return 'Pre-Final';
+    return 'Pending';
+  }
+
+  /** Click handler on the Final/Pending badge. Marking Final is immediate
+   *  (blocked while Pre-Final — the button is disabled in that state, this
+   *  is just a defensive guard); reverting Final -> Pending opens the
+   *  unlock-key modal first. */
   onStatusBadgeClick(t: any) {
+    if (this.isPreFinal(t)) return;
     if (!this.isFinal(t)) {
       this.setTopicStatus(t, 'final');
     } else {
@@ -1132,7 +1145,17 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  private setTopicStatus(t: any, status: 'pending' | 'final', unlockKey?: string) {
+  /** Click handler on the Pre-Final badge. Toggles pre_final <-> pending.
+   *  No unlock key needed either direction — Pre-Final is a lighter-weight
+   *  checkpoint than Final, which is the one status that's meant to be
+   *  hard to accidentally undo. Blocked while already Final (defensive
+   *  guard — button is disabled in that state). */
+  onPreFinalBadgeClick(t: any) {
+    if (this.isFinal(t)) return;
+    this.setTopicStatus(t, this.isPreFinal(t) ? 'pending' : 'pre_final');
+  }
+
+  private setTopicStatus(t: any, status: 'pending' | 'pre_final' | 'final', unlockKey?: string) {
     this.savingStatusId[t.id] = true;
     this.api.put<any>(`/topics/${t.id}/status`, { status, unlock_key: unlockKey || null }).subscribe({
       next: (r: any) => {
@@ -1140,7 +1163,8 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
         if (r?.status) {
           t.topic_status = status;
           t.status_by = this.auth.user?.name || t.status_by;
-          this.toast.success(status === 'final' ? 'Marked as Final' : 'Reverted to Pending');
+          const label = status === 'final' ? 'Marked as Final' : status === 'pre_final' ? 'Marked as Pre-Final' : 'Reverted to Pending';
+          this.toast.success(label);
           this.applyTopicFilter();
         } else {
           this.toast.error(r?.message || 'Failed to update status');

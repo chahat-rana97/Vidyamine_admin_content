@@ -11,6 +11,15 @@
 
     <div class="cv-panetoggles" *ngIf="!pickerOpen && left.docType && right.docType">
       <button
+        class="cv-syncbtn"
+        [class.on]="syncScrollEnabled"
+        (click)="onSyncButtonClick()"
+        title="This feature is in progress"
+      >
+        <span class="cv-syncbtn-dot"></span>
+        {{ syncScrollEnabled ? 'Sync: On' : 'Sync: Off' }}
+      </button>
+      <button
         class="cv-panetogglebtn"
         [class.active]="leftPaneOpen"
         (click)="togglePaneVisibility('left')"
@@ -28,6 +37,21 @@
         (click)="togglePaneVisibility('comments')"
         title="{{ commentsPanelOpen ? 'Hide' : 'Show' }} comments panel"
       >💬 Comments</button>
+    </div>
+
+    <div class="cv-downloadwrap" *ngIf="!pickerOpen && left.docType && right.docType">
+      <button class="cv-downloadbtn" [disabled]="!!downloadingSide" (click)="downloadMenuOpen = !downloadMenuOpen; $event.stopPropagation()">
+        <ng-container *ngIf="!downloadingSide; else downloadingTpl">⬇ Download</ng-container>
+        <ng-template #downloadingTpl><span class="cv-download-spinner"></span> Downloading…</ng-template>
+      </button>
+      <div class="cv-downloadmenu" *ngIf="downloadMenuOpen" (click)="$event.stopPropagation()">
+        <div class="cv-downloadmenu-section">{{ DOC_LABEL[left.docType] }}</div>
+        <button (click)="downloadWithComments('left')" [disabled]="downloadingSide === 'left'">📄 Pages with comments</button>
+        <button (click)="downloadCommentLog('left')" [disabled]="downloadingSide === 'left'">📝 Comment log only</button>
+        <div class="cv-downloadmenu-section">{{ DOC_LABEL[right.docType] }}</div>
+        <button (click)="downloadWithComments('right')" [disabled]="downloadingSide === 'right'">📄 Pages with comments</button>
+        <button (click)="downloadCommentLog('right')" [disabled]="downloadingSide === 'right'">📝 Comment log only</button>
+      </div>
     </div>
 
     <button class="cv-changebtn" (click)="openPicker()">🔀 Change documents</button>
@@ -112,19 +136,46 @@
         💬 Comment
         <span class="cv-item-commentcount" *ngIf="commentsForIndex(side, index).length">{{ commentsForIndex(side, index).length }}</span>
       </button>
+      <button
+        class="cv-item-pinbtn"
+        *ngIf="canWrite"
+        [class.active]="isPinModeActive(side, index)"
+        (click)="togglePinMode(side, index, $event)"
+        title="{{ isPinModeActive(side, index) ? 'Cancel — click the page to place a sticky note' : 'Add a sticky-note comment anywhere on this ' + itemNoun(side) }}"
+      >{{ isPinModeActive(side, index) ? '✕ Cancel' : '📌 Add comment' }}</button>
     </div>
   </ng-template>
 
+  <!-- ═══════════════ ATTACHED COMMENT BOX ═══════════════
+       Reused under every screenshot / PDF page / PPTX slide. Shows the real
+       comment thread for that item in a transparent panel, lets the user
+       edit/delete comments inline, and post new ones. No pins on the page,
+       no author name shown — just the comment text with the page/slide it
+       belongs to implied by which box it's attached to. -->
   <ng-template #itemCommentBoxBlock let-side="side" let-index="index">
     <div class="cv-attached-box" *ngIf="isBoxOpen(side, index)">
-      <div class="cv-attached-list" *ngIf="commentsForIndex(side, index).length">
-        <div class="cv-attached-comment" *ngFor="let c of commentsForIndex(side, index)" [class.resolved]="c.resolved">
-          <div class="cv-ac-avatar">{{ (c.author || '?').charAt(0) }}</div>
+
+      <!-- Compose box now comes FIRST, right under the toolbar, so it's
+           always visible the instant the box opens — it can never end up
+           scrolled out of view below a long comment list. -->
+      <div class="cv-attached-compose" *ngIf="canWrite">
+        <textarea
+          [(ngModel)]="newCommentText"
+          rows="2"
+          placeholder="Write a comment on this {{ itemNoun(side) }}…"
+        ></textarea>
+        <div class="cv-attached-compose-actions">
+          <button class="cv-ac-cancel" (click)="closeCommentBox()">Cancel</button>
+          <button class="cv-ac-save" [disabled]="!newCommentText.trim()" (click)="submitItemComment(side, index)">Post comment</button>
+        </div>
+      </div>
+
+      <div class="cv-attached-list" *ngIf="footerCommentsForIndex(side, index).length">
+        <div class="cv-attached-comment" *ngFor="let c of footerCommentsForIndex(side, index)" [class.resolved]="c.resolved">
           <div class="cv-ac-body">
 
             <ng-container *ngIf="editingCommentId !== c.id; else editTpl">
               <div class="cv-ac-meta">
-                <span class="cv-ac-author">{{ c.author || 'Unknown' }}</span>
                 <span class="cv-ac-date">{{ c.created_at }}</span>
                 <span class="cv-ac-resolvedtag" *ngIf="c.resolved">✓ resolved</span>
               </div>
@@ -148,21 +199,175 @@
         </div>
       </div>
 
-      <div class="cv-attached-compose" *ngIf="canWrite">
-        <textarea
-          [(ngModel)]="newCommentText"
-          rows="2"
-          placeholder="Write a comment on this {{ itemNoun(side) }}…"
-        ></textarea>
-        <div class="cv-attached-compose-actions">
-          <button class="cv-ac-cancel" (click)="closeCommentBox()">Cancel</button>
-          <button class="cv-ac-save" [disabled]="!newCommentText.trim()" (click)="submitItemComment(side, index)">Post comment</button>
+      <div class="cv-attached-readonly" *ngIf="!canWrite && !footerCommentsForIndex(side, index).length">
+        No comments on this {{ itemNoun(side) }} yet.
+      </div>
+    </div>
+  </ng-template>
+
+  <!-- ═══════════════ STICKY-NOTE PIN LAYER ═══════════════
+       Sits absolutely-positioned on TOP of a .cv-surface (image/canvas).
+       Renders: (1) every existing pinned comment as a small transparent
+       draggable, freely-resizable sticky note, (2) a live crosshair-mode
+       click-catcher when "+ Add comment" is armed for this item, and
+       (3) the in-progress draft note being composed after the user
+       clicks a spot.
+
+       Each note is wrapped in .cv-sticky-wrap, which is what's actually
+       positioned at the pin's x/y. Inside it: .cv-sticky-note holds ONLY
+       the text/content and is the thing that resizes/scrolls; all its
+       buttons (edit/resolve/delete/save/cancel/colors) live in a
+       separate .cv-sticky-toolbar UNDER the note, outside the resizable
+       area, so they're always reachable without scrolling inside a
+       small note. -->
+  <ng-template #itemStickyLayerBlock let-side="side" let-index="index">
+
+    <!-- Transparent click-catcher: only active while pin mode is armed for
+         THIS item, so normal viewing/zooming elsewhere is unaffected. -->
+    <div
+      class="cv-pin-clickcatcher"
+      *ngIf="isPinModeActive(side, index)"
+      (click)="onSurfaceClick(side, index, $event)"
+    ></div>
+
+    <!-- Existing pinned sticky notes -->
+    <div
+      class="cv-sticky-wrap"
+      *ngFor="let c of pinnedCommentsForIndex(side, index)"
+      [style.left.%]="pinX(c)"
+      [style.top.%]="pinY(c)"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="cv-sticky-row">
+        <!-- Icon attached to the LEFT of the note, filled with its current box
+             color, with an edit-pencil glyph on top. Click toggles the action
+             toolbar (+ color picker, when editing) below. -->
+        <button
+          class="cv-sticky-toggle-icon"
+          [style.background]="editingPinId === c.id ? editingPinBoxHex : stickyBoxHex(c)"
+          (click)="toggleStickyActions(c.id, $event)"
+          title="Actions"
+        >✎</button>
+
+        <div
+          class="cv-sticky-note"
+          [class.resolved]="c.resolved"
+          [ngStyle]="editingPinId === c.id ? editingNoteStyle(c) : stickyNoteStyle(c)"
+          cvResizeWatch
+          (cvResized)="onPinResized(c, $event)"
+        >
+          <div class="cv-sticky-drag" (mousedown)="onPinDragStart(c, $event)" title="Drag to reposition">⠿</div>
+
+          <ng-container *ngIf="editingPinId !== c.id; else editPinTpl">
+            <div class="cv-sticky-text">{{ c.text }}</div>
+            <div class="cv-sticky-meta" *ngIf="c.resolved">
+              <span class="cv-sticky-resolvedtag">✓ resolved</span>
+            </div>
+          </ng-container>
+
+          <ng-template #editPinTpl>
+            <textarea class="cv-sticky-edittext" [(ngModel)]="editingPinText" rows="3" (click)="$event.stopPropagation()"></textarea>
+          </ng-template>
         </div>
       </div>
 
-      <div class="cv-attached-readonly" *ngIf="!canWrite && !commentsForIndex(side, index).length">
-        No comments on this {{ itemNoun(side) }} yet.
+      <!-- Toolbar OUTSIDE the note — only shown once the icon above is clicked. -->
+      <ng-container *ngIf="isToolbarExpanded(c.id)">
+        <div class="cv-sticky-toolbar" *ngIf="editingPinId !== c.id; else editToolbarTpl">
+          <ng-container *ngIf="canWrite">
+            <button (click)="startEditPin(c, $event)">✎ Edit</button>
+            <button (click)="toggleResolvePin(c, $event)">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</button>
+            <button (click)="deletePin(c, $event)">🗑 Delete</button>
+          </ng-container>
+        </div>
+        <ng-template #editToolbarTpl>
+          <div class="cv-sticky-toolbar">
+            <button (click)="toggleColorPicker($event)">🎨 {{ showColorPicker ? 'Hide colors' : 'Colors' }}</button>
+            <button (click)="cancelEditPin($event)">Cancel</button>
+            <button [disabled]="!editingPinText.trim()" (click)="saveEditPin(c, $event)">Save</button>
+          </div>
+          <ng-container *ngTemplateOutlet="colorPickerRow; context: {
+            boxHex: editingPinBoxHex, textHex: editingPinTextHex, opacity: editingPinOpacity,
+            onPreset: applyPresetToEditingBound, onBoxHex: setEditingBoxHex, onTextHex: setEditingTextHex, onOpacity: setEditingOpacity
+          }"></ng-container>
+        </ng-template>
+      </ng-container>
+    </div>
+
+    <!-- Draft note being placed right now (unsaved) -->
+    <div
+      class="cv-sticky-wrap"
+      *ngIf="draftPin && draftPin.side === side && draftPin.index === index"
+      [style.left.%]="draftPin.x"
+      [style.top.%]="draftPin.y"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="cv-sticky-row">
+        <!-- Icon attached to the LEFT of the draft note, filled with its
+             current box color. -->
+        <button
+          class="cv-sticky-toggle-icon"
+          [style.background]="draftPin.boxHex"
+          (click)="toggleStickyActions('draft', $event)"
+          title="Actions"
+        >✎</button>
+
+        <div class="cv-sticky-note cv-sticky-draft" [ngStyle]="draftNoteStyle()">
+          <textarea
+            class="cv-sticky-edittext"
+            [(ngModel)]="draftPin.text"
+            rows="3"
+            placeholder="Write a sticky note…"
+            (click)="$event.stopPropagation()"
+          ></textarea>
+        </div>
       </div>
+
+      <ng-container *ngIf="isToolbarExpanded('draft')">
+        <div class="cv-sticky-toolbar">
+          <button (click)="toggleColorPicker($event)">🎨 {{ showColorPicker ? 'Hide colors' : 'Colors' }}</button>
+          <button (click)="cancelDraftPin()">Cancel</button>
+          <button [disabled]="!draftPin.text.trim()" (click)="saveDraftPin()">Post</button>
+        </div>
+        <ng-container *ngTemplateOutlet="colorPickerRow; context: {
+          boxHex: draftPin.boxHex, textHex: draftPin.textHex, opacity: draftPin.opacity,
+          onPreset: applyPresetToDraftBound, onBoxHex: setDraftBoxHex, onTextHex: setDraftTextHex, onOpacity: setDraftOpacity
+        }"></ng-container>
+      </ng-container>
+    </div>
+  </ng-template>
+
+  <!-- ═══════════════ SHARED COLOR/OPACITY PICKER ROW ═══════════════
+       Reused by both the draft-note composer and the pinned-note editor.
+       Preset swatches instantly set box+text color together (chosen so
+       text stays readable against the box); the custom hex + slider let
+       the user dial in an exact color and transparency. Only shown when
+       showColorPicker is toggled on, to keep the note compact by default. -->
+  <ng-template #colorPickerRow let-boxHex="boxHex" let-textHex="textHex" let-opacity="opacity"
+               let-onPreset="onPreset" let-onBoxHex="onBoxHex" let-onTextHex="onTextHex" let-onOpacity="onOpacity">
+    <div class="cv-sticky-colorpicker" *ngIf="showColorPicker" (click)="$event.stopPropagation()">
+      <div class="cv-sticky-swatches">
+        <button
+          *ngFor="let p of STICKY_PRESETS"
+          class="cv-sticky-swatch"
+          [style.background]="p.box"
+          [title]="p.name"
+          (click)="onPreset(p)"
+        ></button>
+      </div>
+      <div class="cv-sticky-colorrow">
+        <label>Box
+          <input type="color" [ngModel]="boxHex" (ngModelChange)="onBoxHex($event)" />
+        </label>
+        <label>Text
+          <input type="color" [ngModel]="textHex" (ngModelChange)="onTextHex($event)" />
+        </label>
+      </div>
+      <label class="cv-sticky-opacityrow">
+        Transparency
+        <input type="range" min="0.05" max="1" step="0.05" [ngModel]="opacity" (ngModelChange)="onOpacity($event)" />
+        <span>{{ (opacity * 100) | number:'1.0-0' }}%</span>
+      </label>
     </div>
   </ng-template>
 
@@ -188,7 +393,7 @@
         </button>
       </div>
 
-      <div class="cv-pane-body">
+      <div class="cv-pane-body" #leftPaneBody (scroll)="onPaneScroll('left')">
         <div class="cv-pane-loading" *ngIf="left.loading">Loading…</div>
         <div class="cv-pane-error" *ngIf="!left.loading && left.error">{{ left.error }}</div>
 
@@ -201,9 +406,10 @@
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'left', index: i }"></ng-container>
-                  <div class="cv-surface" [id]="'leftSurface-' + i">
+                  <div class="cv-surface" [class.cv-pin-armed]="isPinModeActive('left', i)" [id]="'leftSurface-' + i">
                     <img [src]="it.imageUrl" [alt]="it.label" class="cv-shot-img"
                          (load)="onScreenshotLoad('left', $event.target)" />
+                    <ng-container *ngTemplateOutlet="itemStickyLayerBlock; context: { side: 'left', index: i }"></ng-container>
                   </div>
                   <ng-container *ngTemplateOutlet="itemCommentBoxBlock; context: { side: 'left', index: i }"></ng-container>
                 </div>
@@ -218,9 +424,10 @@
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'left', index: i }"></ng-container>
-                  <div class="cv-surface cv-surface-pdf" [id]="'leftSurface-' + i">
+                  <div class="cv-surface cv-surface-pdf" [class.cv-pin-armed]="isPinModeActive('left', i)" [id]="'leftSurface-' + i">
                     <canvas [id]="i === 0 ? 'leftPdfCanvas' : 'leftPdfCanvas-' + i"></canvas>
                     <div class="cv-page-spinner" *ngIf="left.pageRendering && left.activeIndex === i">Rendering page…</div>
+                    <ng-container *ngTemplateOutlet="itemStickyLayerBlock; context: { side: 'left', index: i }"></ng-container>
                   </div>
                   <ng-container *ngTemplateOutlet="itemCommentBoxBlock; context: { side: 'left', index: i }"></ng-container>
                 </div>
@@ -239,9 +446,10 @@
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'left', index: i }"></ng-container>
-                  <div class="cv-surface cv-surface-pptx" [id]="'leftSurface-' + i">
+                  <div class="cv-surface cv-surface-pptx" [class.cv-pin-armed]="isPinModeActive('left', i)" [id]="'leftSurface-' + i">
                     <canvas [id]="i === 0 ? 'leftPptxCanvas' : 'leftPptxCanvas-' + i"></canvas>
                     <div class="cv-page-spinner" *ngIf="left.pageRendering && left.activeIndex === i">Rendering slide…</div>
+                    <ng-container *ngTemplateOutlet="itemStickyLayerBlock; context: { side: 'left', index: i }"></ng-container>
                   </div>
                   <ng-container *ngTemplateOutlet="itemCommentBoxBlock; context: { side: 'left', index: i }"></ng-container>
                 </div>
@@ -277,7 +485,7 @@
         </button>
       </div>
 
-      <div class="cv-pane-body">
+      <div class="cv-pane-body" #rightPaneBody (scroll)="onPaneScroll('right')">
         <div class="cv-pane-loading" *ngIf="right.loading">Loading…</div>
         <div class="cv-pane-error" *ngIf="!right.loading && right.error">{{ right.error }}</div>
 
@@ -289,9 +497,10 @@
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'right', index: i }"></ng-container>
-                  <div class="cv-surface" [id]="'rightSurface-' + i">
+                  <div class="cv-surface" [class.cv-pin-armed]="isPinModeActive('right', i)" [id]="'rightSurface-' + i">
                     <img [src]="it.imageUrl" [alt]="it.label" class="cv-shot-img"
                          (load)="onScreenshotLoad('right', $event.target)" />
+                    <ng-container *ngTemplateOutlet="itemStickyLayerBlock; context: { side: 'right', index: i }"></ng-container>
                   </div>
                   <ng-container *ngTemplateOutlet="itemCommentBoxBlock; context: { side: 'right', index: i }"></ng-container>
                 </div>
@@ -305,9 +514,10 @@
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'right', index: i }"></ng-container>
-                  <div class="cv-surface cv-surface-pdf" [id]="'rightSurface-' + i">
+                  <div class="cv-surface cv-surface-pdf" [class.cv-pin-armed]="isPinModeActive('right', i)" [id]="'rightSurface-' + i">
                     <canvas [id]="i === 0 ? 'rightPdfCanvas' : 'rightPdfCanvas-' + i"></canvas>
                     <div class="cv-page-spinner" *ngIf="right.pageRendering && right.activeIndex === i">Rendering page…</div>
+                    <ng-container *ngTemplateOutlet="itemStickyLayerBlock; context: { side: 'right', index: i }"></ng-container>
                   </div>
                   <ng-container *ngTemplateOutlet="itemCommentBoxBlock; context: { side: 'right', index: i }"></ng-container>
                 </div>
@@ -321,9 +531,10 @@
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'right', index: i }"></ng-container>
-                  <div class="cv-surface cv-surface-pptx" [id]="'rightSurface-' + i">
+                  <div class="cv-surface cv-surface-pptx" [class.cv-pin-armed]="isPinModeActive('right', i)" [id]="'rightSurface-' + i">
                     <canvas [id]="i === 0 ? 'rightPptxCanvas' : 'rightPptxCanvas-' + i"></canvas>
                     <div class="cv-page-spinner" *ngIf="right.pageRendering && right.activeIndex === i">Rendering slide…</div>
+                    <ng-container *ngTemplateOutlet="itemStickyLayerBlock; context: { side: 'right', index: i }"></ng-container>
                   </div>
                   <ng-container *ngTemplateOutlet="itemCommentBoxBlock; context: { side: 'right', index: i }"></ng-container>
                 </div>
@@ -359,9 +570,9 @@
              (click)="scrollToItem(activePaneSide, c.pageIndex)">
           <div class="cv-comment-meta">
             <span class="cv-comment-pagebadge">{{ c.pageLabel }}</span>
-            <span class="cv-comment-author">{{ c.author || 'Unknown' }}</span>
             <span class="cv-comment-date">{{ c.created_at }}</span>
           </div>
+          <div class="cv-comment-author" *ngIf="c.author">{{ c.author }}</div>
           <div class="cv-comment-text">{{ c.text }}</div>
           <div class="cv-comment-actions" *ngIf="canWrite">
             <button (click)="toggleResolve(c); $event.stopPropagation()">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</button>

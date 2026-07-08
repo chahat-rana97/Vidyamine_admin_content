@@ -379,21 +379,24 @@
   color: #f87171;
 }
 
-/* ── Final / Pending: now its own prominent row, sized up, green when Final ── */
+/* ── Pre-Final / Final: small buttons side by side in one row ── */
 .final-status-row {
   margin-top: 4px;
+  display: flex;
+  gap: 6px;
 }
 .status-toggle-badge.final-badge {
-  width: 100%;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 5px 8px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
   border-radius: 6px;
   border: 1.5px solid transparent;
+  white-space: nowrap;
 }
 .status-toggle-badge.final-badge.status-final {
   background: rgba(34, 197, 94, 0.18);
@@ -415,9 +418,21 @@
   color: #1a1a1a;
   border-color: #f0a500;
 }
+/* Pre-Final: distinct blue/violet tone so it's never confused with the
+   green (Final) / amber (Pending) states. */
+.status-toggle-badge.prefinal-badge.status-prefinal {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.55);
+}
+.status-toggle-badge.prefinal-badge.status-prefinal:hover {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
 .status-toggle-badge.final-badge:disabled {
   opacity: 0.6;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 /* ── Updated By / Status By — colored capsules with dark, readable text ── */
@@ -456,6 +471,11 @@
   background: #dcfce7;
   border-color: #86efac;
   color: #166534;
+}
+.audit-pill-status-prefinal {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+  color: #3730a3;
 }
 .audit-pill-status-pending {
   background: #fef3c7;

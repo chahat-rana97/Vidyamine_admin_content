@@ -39,6 +39,7 @@
         <option value="">All topics</option>
         <optgroup label="Status">
           <option value="status:final">Final</option>
+          <option value="status:pre_final">Pre-Final</option>
           <option value="status:pending">Pending</option>
         </optgroup>
         <optgroup label="Assigned to" *ngIf="assignableUsers.length">
@@ -164,14 +165,25 @@
           >🗑</button>
         </div>
 
-        <!-- ── Final / Pending — own row, prominent, green when Final ── -->
+        <!-- ── Pre-Final / Final — small buttons side by side.
+             Pre-Final is a checkpoint before Final: once a topic is
+             Pre-Final, Final is locked until Pre-Final is cleared again.
+             Once a topic is Final, Pre-Final is locked until it's
+             unlocked back to Pending (existing unlock-key flow). ── -->
         <div class="final-status-row">
+          <button
+            class="status-toggle-badge final-badge prefinal-badge"
+            [ngClass]="isPreFinal(t) ? 'status-prefinal' : 'status-pending'"
+            [disabled]="savingStatusId[t.id] || isFinal(t)"
+            (click)="onPreFinalBadgeClick(t)"
+            [title]="isFinal(t) ? 'Topic is Final — revert to Pending first to use Pre-Final' : (isPreFinal(t) ? 'Click to remove Pre-Final' : 'Click to set Pre-Final')"
+          >{{ savingStatusId[t.id] ? '…' : (isPreFinal(t) ? '✓ Pre-Final' : 'Set Pre-Final') }}</button>
           <button
             class="status-toggle-badge final-badge"
             [ngClass]="isFinal(t) ? 'status-final' : 'status-pending'"
-            [disabled]="savingStatusId[t.id]"
+            [disabled]="savingStatusId[t.id] || isPreFinal(t)"
             (click)="onStatusBadgeClick(t)"
-            [title]="isFinal(t) ? 'Click to revert to Pending (requires unlock key)' : 'Click to mark as Final'"
+            [title]="isPreFinal(t) ? 'Topic is Pre-Final — remove Pre-Final first to mark Final' : (isFinal(t) ? 'Click to revert to Pending (requires unlock key)' : 'Click to mark as Final')"
           >{{ savingStatusId[t.id] ? '…' : (isFinal(t) ? '✓ Final' : 'Pending') }}</button>
         </div>
 
@@ -312,10 +324,10 @@
           </span>
           <span
             class="audit-pill audit-pill-status"
-            [ngClass]="isFinal(t) ? 'audit-pill-status-final' : 'audit-pill-status-pending'"
-            [title]="isFinal(t) ? 'Marked Final by' : 'Marked Pending by'"
+            [ngClass]="isFinal(t) ? 'audit-pill-status-final' : (isPreFinal(t) ? 'audit-pill-status-prefinal' : 'audit-pill-status-pending')"
+            [title]="'Marked ' + statusLabel(t) + ' by'"
           >
-            <span class="audit-pill-label">Marked {{ isFinal(t) ? 'Final' : 'Pending' }} by</span>
+            <span class="audit-pill-label">Marked {{ statusLabel(t) }} by</span>
             <span class="audit-pill-value">{{ t.status_by || '—' }}</span>
           </span>
         </div>

@@ -75,6 +75,42 @@
   color: var(--accent, #6366f1);
 }
 
+/* ── Sync-scroll toggle ── grey/off by default, flips to green/on when
+   active. Sits just left of the pane toggles in the top bar. ── */
+.cv-syncbtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elevated, #1a1e2a);
+  border: 1px solid var(--border, #252a38);
+  color: var(--text-muted, #50566e);
+  border-radius: 8px;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.cv-syncbtn:hover { color: var(--text-secondary, #8b90a7); border-color: var(--border-light, #2e3447); }
+.cv-syncbtn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted, #50566e);
+  transition: background 0.15s, box-shadow 0.15s;
+  flex: none;
+}
+.cv-syncbtn.on {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+}
+.cv-syncbtn.on .cv-syncbtn-dot {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
+}
+
 /* ── Picker modal ── */
 .cv-picker-overlay {
   position: fixed; inset: 0;
@@ -306,6 +342,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-bottom: none;
@@ -381,13 +418,270 @@
 }
 .cv-item-commentbtn.active .cv-item-commentcount { background: rgba(255,255,255,0.25); }
 
+.cv-item-pinbtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-item-pinbtn:hover { border-color: #f59e0b; color: #f59e0b; }
+.cv-item-pinbtn.active {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+/* Pin-placement crosshair mode: while armed, the surface shows a
+   crosshair cursor and a faint highlight so it's obvious clicking will
+   drop a sticky note. The click-catcher is a full-size transparent
+   overlay that captures the click coordinates. */
+.cv-surface.cv-pin-armed {
+  cursor: crosshair;
+  outline: 2px dashed #f59e0b;
+  outline-offset: -2px;
+}
+.cv-pin-clickcatcher {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  background: rgba(245, 158, 11, 0.03);
+}
+
+/* Sticky note structure:
+     .cv-sticky-wrap    — absolutely positioned at the pin's x%/y%. Not
+                           resized itself, just a plain positioning anchor
+                           so the toolbar below always lines up with the
+                           note above it however the note gets resized.
+     .cv-sticky-note    — the actual note surface. ONLY this part
+                           resizes/scrolls (resize: both), so it holds
+                           just the text/edit textarea/color picker.
+     .cv-sticky-toolbar — a separate strip UNDER the note, outside the
+                           resizable/scrollable area, so Edit/Resolve/
+                           Delete/Save/Cancel/Colors are always visible
+                           without having to scroll inside a small note.
+   Colors come from inline styles (stickyNoteStyle()/draftNoteStyle()/
+   editingNoteStyle() in the component) so each note can have its own
+   box_color/text_color — the CSS below only sets DEFAULTS for anything
+   the inline style doesn't override, and deliberately does NOT use any
+   var(--text-*) app-theme variable for text color, since that variable
+   flips to a light color in dark mode and made note text unreadable
+   against the light note background. Sticky-note text always uses its
+   own explicit color (default a dark slate) regardless of app theme. */
+.cv-sticky-wrap {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-4px, -4px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.cv-sticky-note {
+  width: 200px;
+  min-width: 140px;
+  min-height: 60px;
+  max-width: 480px;
+  max-height: 420px;
+  overflow: auto;
+  resize: both;
+  background: rgba(253, 224, 71, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid #f59e0b;
+  border-radius: 4px 12px 12px 12px;
+  padding: 8px 9px 7px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.28);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1f2430;
+  cursor: default;
+}
+.cv-sticky-note.resolved { opacity: 0.75; }
+.cv-sticky-drag {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.55;
+  cursor: grab;
+  user-select: none;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.cv-sticky-drag:active { cursor: grabbing; }
+.cv-sticky-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-right: 14px;
+  margin-bottom: 6px;
+  color: inherit;
+}
+.cv-sticky-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  color: inherit;
+  opacity: 0.7;
+}
+.cv-sticky-resolvedtag {
+  font-weight: 700;
+  color: #15803d;
+  opacity: 1;
+}
+
+/* Toolbar sits OUTSIDE .cv-sticky-note entirely — a normal, non-scrolling
+   flex row directly under it — so its buttons are always one glance away
+   regardless of how tall/short the note is or has been resized to. */
+/* Row that holds the toggle icon (left) + the note (right), side by side.
+   Sits inside .cv-sticky-wrap, above the (separately positioned) toolbar. */
+.cv-sticky-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* Small round icon attached to the LEFT of each sticky note, filled with
+   the note's current box color and showing a pencil glyph. Clicking it
+   toggles the action toolbar (and, while editing, the color picker) below
+   — keeps the note compact by default and only reveals actions on demand. */
+.cv-sticky-toggle-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.85);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.15);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #1f2430;
+  transition: transform 0.12s ease;
+}
+.cv-sticky-toggle-icon:hover { transform: scale(1.1); }
+
+.cv-sticky-toolbar {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  background: rgba(20, 22, 30, 0.92);
+  border: 1px solid var(--border-light, #2e3447);
+  border-radius: 8px;
+  padding: 4px 5px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.cv-sticky-toolbar button {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: #e7e9f2;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-sticky-toolbar button:hover:not(:disabled) { border-color: var(--accent, #6366f1); color: #fff; }
+.cv-sticky-toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.cv-sticky-edittext {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 6px;
+  padding: 6px 7px;
+  color: #1f2430;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  margin-bottom: 6px;
+}
+.cv-sticky-edittext:focus { border-color: var(--accent, #6366f1); }
+
+/* ── Color/opacity picker row shared by the draft composer and the pin
+     editor. Deliberately styled with its own light chrome (not app theme
+     variables) since it always sits on top of the note's own light-ish
+     background regardless of app theme. ── */
+.cv-sticky-colorpicker {
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 8px;
+  padding: 7px 8px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.cv-sticky-swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cv-sticky-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.85);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
+  cursor: pointer;
+  padding: 0;
+}
+.cv-sticky-swatch:hover { transform: scale(1.12); }
+.cv-sticky-colorrow {
+  display: flex;
+  gap: 14px;
+}
+.cv-sticky-colorrow label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: #1f2430;
+}
+.cv-sticky-colorrow input[type="color"] {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+}
+.cv-sticky-opacityrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  color: #1f2430;
+}
+.cv-sticky-opacityrow input[type="range"] {
+  flex: 1;
+  accent-color: #f59e0b;
+}
+.cv-sticky-opacityrow span {
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Comment box attached to the bottom edge of the item, same width as
      the surface above it (see .cv-item-frame). Redesigned to feel like a
      proper comment thread rather than a plain form. ── */
 .cv-attached-box {
-  flex: none;
+  flex: 0 0 auto;
   width: 100%;
-  background: linear-gradient(180deg, var(--bg-surface, #13161e) 0%, var(--bg-elevated, #1a1e2a) 100%);
+  background: rgba(19, 22, 30, 0.4);
   border: 1px solid var(--border-light, #2e3447);
   border-top: none;
   border-radius: 0 0 12px 12px;
@@ -396,13 +690,24 @@
   flex-direction: column;
   gap: 12px;
   box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+  min-height: 40px;
+  height: auto;
+  position: relative;
+  z-index: 2;
 }
-.cv-attached-list { display: flex; flex-direction: column; gap: 10px; }
+.cv-attached-list {
+  overflow-y: auto;
+  max-height: 320px;
+  padding-right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .cv-attached-comment {
   position: relative;
   display: flex;
   gap: 10px;
-  background: var(--bg-elevated, #1a1e2a);
+  background: rgba(26, 30, 42, 0.35);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px 10px 14px;
@@ -421,19 +726,6 @@
 .cv-attached-comment.resolved { opacity: 0.55; }
 .cv-attached-comment.resolved::before { background: var(--success, #22c55e); }
 
-.cv-ac-avatar {
-  flex: none;
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent, #6366f1), #8b5cf6);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
 .cv-ac-body { flex: 1; min-width: 0; }
 
 .cv-ac-meta { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--text-muted); margin-bottom: 5px; flex-wrap: wrap; }
@@ -660,7 +952,16 @@
 }
 .cv-comment-item:hover { border-color: var(--accent); }
 .cv-comment-item.resolved { opacity: 0.55; }
-.cv-comment-meta { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--text-muted); margin-bottom: 4px; }
+.cv-comment-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
 .cv-comment-pagebadge {
   background: var(--accent-dim, rgba(99,102,241,0.12));
   color: var(--accent, #6366f1);
@@ -668,9 +969,24 @@
   padding: 1px 6px;
   font-size: 10px;
   font-weight: 700;
-  flex: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.cv-comment-author { flex: 1; }
+.cv-comment-date {
+  white-space: nowrap;
+  flex: none;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.cv-comment-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+}
 .cv-comment-text { font-size: 12.5px; line-height: 1.5; color: var(--text-primary); word-break: break-word; }
 .cv-comment-actions { display: flex; gap: 8px; margin-top: 7px; }
 .cv-comment-actions button {
@@ -692,6 +1008,71 @@
   line-height: 1.5;
   color: var(--text-muted);
 }
+
+/* ── Download menu (top bar) ── */
+.cv-downloadwrap { position: relative; }
+.cv-downloadbtn {
+  background: var(--bg-elevated, #1a1e2a);
+  border: 1px solid var(--border, #252a38);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cv-downloadbtn:hover { border-color: var(--accent); color: var(--accent); }
+.cv-downloadmenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 240px;
+  background: var(--bg-surface, #13161e);
+  border: 1px solid var(--border-light, #2e3447);
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  z-index: 50;
+}
+.cv-downloadmenu-section {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 8px 10px 4px;
+}
+.cv-downloadmenu button {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cv-downloadmenu button:hover:not(:disabled) { background: var(--bg-hover, #1f2433); }
+.cv-downloadmenu button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ══════════════════════════════════════════════════════════
+   DOWNLOAD BUTTON LOADING SPINNER
+   ══════════════════════════════════════════════════════════ */
+.cv-download-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: cv-spin 0.7s linear infinite;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+@keyframes cv-spin { to { transform: rotate(360deg); } }
 
 /* ── Responsive: stack panes on narrow screens ── */
 @media (max-width: 900px) {
