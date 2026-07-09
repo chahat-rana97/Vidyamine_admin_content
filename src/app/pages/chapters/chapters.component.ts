@@ -16,6 +16,55 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class ChaptersComponent implements OnInit {
 
+  // ── Static cache: survives navigating away and back, so lookups + the
+  // full chapter list load only once per app session instead of refetching
+  // every time this screen is opened. Cleared after create/edit/delete.
+  private static cache: {
+    boards: any[];
+    classes: any[];
+    subjects: any[];
+    books: any[];
+    chapters: any[];
+  } | null = null;
+
+  static clearCache() {
+    ChaptersComponent.cache = null;
+  }
+
+  private static saveUiState(inst: ChaptersComponent) {
+    ChaptersComponent.uiState = {
+      search: inst.search,
+      filterBoardId: inst.filterBoardId,
+      filterClassId: inst.filterClassId,
+      filterSubjectId: inst.filterSubjectId,
+      filterBookId: inst.filterBookId,
+      filterStatus: inst.filterStatus,
+      filterSequence: inst.filterSequence,
+      filterClassOptions: inst.filterClassOptions,
+      filterSubjectOptions: inst.filterSubjectOptions,
+      filterBookOptions: inst.filterBookOptions,
+      currentPage: inst.currentPage
+    };
+  }
+
+  // ── Static UI state: remembers filters/search/page across navigating away
+  // (e.g. to the Topics screen) and back, so the list looks exactly as the
+  // user left it instead of resetting. Cleared only when filters are
+  // explicitly cleared via clearFilters().
+  private static uiState: {
+    search: string;
+    filterBoardId: string;
+    filterClassId: string;
+    filterSubjectId: string;
+    filterBookId: string;
+    filterStatus: string;
+    filterSequence: string;
+    filterClassOptions: any[];
+    filterSubjectOptions: any[];
+    filterBookOptions: any[];
+    currentPage: number;
+  } | null = null;
+
   // ── Lookups ──
   books: any[] = [];
   boards: any[] = [];
@@ -34,6 +83,11 @@ export class ChaptersComponent implements OnInit {
   filterBookId = '';
   filterStatus = '';
   filterSequence = '';
+
+  // ── Pagination state (client-side, batches of 20) ──
+  pageSize = 20;
+  currentPage = 1;
+  paged: any[] = [];
 
   // Cascading option lists for the filter bar
   filterClassOptions: any[] = [];
@@ -107,6 +161,12 @@ export class ChaptersComponent implements OnInit {
         this.loadChapterForEdit(this.editId);
       } else if (this.formMode === 'add') {
         this.initAddForm();
+      } else if (this.filterBoardId || this.filterClassId || this.filterSubjectId || this.filterBookId || this.filterStatus !== '') {
+        this.load();
+      } else if (ChaptersComponent.cache) {
+        this.chapters = ChaptersComponent.cache.chapters;
+        this.buildSequenceOptions();
+        this.applyFilter();
       } else {
         this.load();
       }
@@ -129,6 +189,54 @@ export class ChaptersComponent implements OnInit {
   // ============================================================
 
   private bootstrap() {
+    // Restore filters/search/page exactly as the user left them (e.g. after
+    // navigating to Topics and clicking Back), before deciding how to load.
+    if (ChaptersComponent.uiState) {
+      const s = ChaptersComponent.uiState;
+      this.search = s.search;
+      this.filterBoardId = s.filterBoardId;
+      this.filterClassId = s.filterClassId;
+      this.filterSubjectId = s.filterSubjectId;
+      this.filterBookId = s.filterBookId;
+      this.filterStatus = s.filterStatus;
+      this.filterSequence = s.filterSequence;
+      this.filterClassOptions = s.filterClassOptions;
+      this.filterSubjectOptions = s.filterSubjectOptions;
+      this.filterBookOptions = s.filterBookOptions;
+      this.currentPage = s.currentPage;
+    }
+
+    // Serve from cache if we've already loaded once this session.
+    if (ChaptersComponent.cache) {
+      const c = ChaptersComponent.cache;
+      this.boards = c.boards;
+      this.classes = c.classes;
+      this.subjects = c.subjects;
+      this.books = c.books;
+      this.buildBooksByName();
+      // Only default filterBookOptions to the full book list if it wasn't
+      // already restored above from a saved UI state.
+      if (!ChaptersComponent.uiState) {
+        this.filterBookOptions = [...this.books];
+      }
+      this.loadingLookups = false;
+
+      if (this.formMode === 'edit' && this.editId) {
+        this.loadChapterForEdit(this.editId);
+      } else if (this.formMode === 'add') {
+        this.initAddForm();
+      } else if (this.filterBoardId || this.filterClassId || this.filterSubjectId || this.filterBookId || this.filterStatus !== '') {
+        // Filters narrow results via the API (book_id) or via book attributes,
+        // so re-run load() to honor whatever filters were set before navigating away.
+        this.load(true);
+      } else {
+        this.chapters = c.chapters;
+        this.buildSequenceOptions();
+        this.applyFilter(false);
+      }
+      return;
+    }
+
     this.loadingLookups = true;
     this.api.get<any>('/boards').subscribe({
       next: r => {
@@ -208,6 +316,16 @@ export class ChaptersComponent implements OnInit {
         } else {
           this.load();
         }
+
+        // Cache lookups now; the chapters array gets filled in by load()
+        // above and synced into this same object once it completes.
+        ChaptersComponent.cache = {
+          boards: this.boards,
+          classes: this.classes,
+          subjects: this.subjects,
+          books: this.books,
+          chapters: []
+        };
       },
       error: () => {
         this.loadingLookups = false;
@@ -254,7 +372,7 @@ export class ChaptersComponent implements OnInit {
   // LIST — fetches chapters per book_id (API requires it)
   // ============================================================
 
-  load() {
+  load(preservePage: boolean = false) {
   this.loading = true;
 
   const url = this.filterBookId
@@ -285,8 +403,15 @@ export class ChaptersComponent implements OnInit {
       }
 
       this.buildSequenceOptions();
-      this.applyFilter();
+      this.applyFilter(!preservePage);
       this.loading = false;
+
+      // Keep the cache's chapter list in sync when this is the full,
+      // unfiltered fetch (board/class/subject/book/status all cleared).
+      const noFiltersActive = !this.filterBoardId && !this.filterClassId && !this.filterSubjectId && !this.filterBookId && this.filterStatus === '';
+      if (noFiltersActive && ChaptersComponent.cache) {
+        ChaptersComponent.cache.chapters = this.chapters;
+      }
     },
     error: () => {
       this.chapters = [];
@@ -339,10 +464,11 @@ export class ChaptersComponent implements OnInit {
     this.filterClassOptions = [];
     this.filterSubjectOptions = [];
     this.filterBookOptions = [...this.books];
+    ChaptersComponent.uiState = null;
     this.load();
   }
 
-  applyFilter() {
+  applyFilter(resetPage: boolean = true) {
     const q   = this.search.trim().toLowerCase();
     const seq = this.filterSequence;
 
@@ -355,7 +481,46 @@ export class ChaptersComponent implements OnInit {
 
       return (!q || haystack.includes(q)) && (!seq || String(c.sequence) === seq);
     });
+
+    if (resetPage) this.currentPage = 1;
+    // Clamp in case the restored page no longer fits (e.g. data shrank).
+    if (this.currentPage > this.totalPages) this.currentPage = this.totalPages;
+    this.updatePagedView();
+    ChaptersComponent.saveUiState(this);
   }
+
+  // ============================================================
+  // PAGINATION (client-side, batches of `pageSize`)
+  // ============================================================
+
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.filtered.length / this.pageSize));
+  }
+
+  /** Shows up to 3 page numbers centered on the current page (e.g. 2,3,4 — not all 21). */
+  get pageNumbers(): number[] {
+    const total = this.totalPages;
+    const windowSize = 3;
+    let start = Math.max(1, this.currentPage - 1);
+    let end = Math.min(total, start + windowSize - 1);
+    start = Math.max(1, end - windowSize + 1);
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  }
+
+  updatePagedView() {
+    const start = (this.currentPage - 1) * this.pageSize;
+    this.paged = this.filtered.slice(start, start + this.pageSize);
+  }
+
+  goToPage(page: number) {
+    if (page < 1 || page > this.totalPages) return;
+    this.currentPage = page;
+    this.updatePagedView();
+    ChaptersComponent.saveUiState(this);
+  }
+
+  nextPage() { this.goToPage(this.currentPage + 1); }
+  prevPage() { this.goToPage(this.currentPage - 1); }
 
   private buildSequenceOptions() {
     const seqSet = new Set<number>();
@@ -685,6 +850,7 @@ export class ChaptersComponent implements OnInit {
         this.saving = false;
         if (r?.status) {
           this.toast.success(this.formMode === 'add' ? 'Chapter created' : 'Chapter updated');
+          ChaptersComponent.clearCache();
           this.goToList();
         } else {
           this.toast.error(r?.message || 'Operation failed');
@@ -704,7 +870,7 @@ export class ChaptersComponent implements OnInit {
     if (!this.deleteConfirm) return;
     this.api.delete<any>(`/chapters/${this.deleteConfirm.id}`).subscribe({
       next: (r: any) => {
-        if (r?.status) { this.toast.success('Chapter deleted'); this.load(); }
+        if (r?.status) { this.toast.success('Chapter deleted'); ChaptersComponent.clearCache(); this.load(); }
         else { this.toast.error(r?.message || 'Delete failed'); }
         this.deleteConfirm = null;
       },
@@ -716,7 +882,15 @@ export class ChaptersComponent implements OnInit {
     const newVal = Number(c.is_active) === 1 ? 0 : 1;
     this.api.put<any>(`/chapters/${c.id}`, { is_active: newVal }).subscribe({
       next: (r: any) => {
-        if (r?.status) { c.is_active = newVal; this.toast.success('Status updated'); this.applyFilter(); }
+        if (r?.status) {
+          c.is_active = newVal;
+          this.toast.success('Status updated');
+          this.applyFilter();
+          if (ChaptersComponent.cache) {
+            const cached = ChaptersComponent.cache.chapters.find((x: any) => String(x.id) === String(c.id));
+            if (cached) cached.is_active = newVal;
+          }
+        }
         else { this.toast.error(r?.message || 'Failed to update status'); }
       },
       error: () => this.toast.error('Failed to update status')

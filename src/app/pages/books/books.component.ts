@@ -14,6 +14,26 @@ import { AuthService } from '../../core/services/auth.service';
   styleUrls: ['./books.component.css']
 })
 export class BooksComponent implements OnInit {
+  // ── Static cache: survives navigating away and back, so data loads
+  // only once per app session instead of refetching every time this
+  // screen is opened. Reset via BooksComponent.clearCache() if ever needed
+  // (e.g. after an add/edit/delete elsewhere, or a manual "refresh").
+  private static cache: {
+    boards: any[];
+    classes: any[];
+    subjects: any[];
+    publishers: any[];
+    masterBooks: any[];
+    languages: any[];
+    courseTypes: any[];
+    books: any[];
+    maxSequence: number;
+  } | null = null;
+
+  static clearCache() {
+    BooksComponent.cache = null;
+  }
+
   // ── Lookups ──
   boards: any[] = [];
   classes: any[] = [];
@@ -33,6 +53,11 @@ export class BooksComponent implements OnInit {
   filterClassId = '';
   filterSubjectId = '';
   filterStatus = '';
+
+  // ── Pagination state (client-side, batches of 10) ──
+  pageSize = 20;
+  currentPage = 1;
+  paged: any[] = [];
 
   // Class/subject options scoped to the filter bar's selected board/class
   filterClassOptions: any[] = [];
@@ -78,6 +103,34 @@ export class BooksComponent implements OnInit {
   // ============================================================
 
   private bootstrap() {
+    // Serve from cache if we've already loaded once this session.
+    if (BooksComponent.cache) {
+      const c = BooksComponent.cache;
+      this.boards = c.boards;
+      this.classes = c.classes;
+      this.subjects = c.subjects;
+      this.publishers = c.publishers;
+      this.masterBooks = c.masterBooks;
+      this.languages = c.languages;
+      this.courseTypes = c.courseTypes;
+      this.books = c.books;
+      this.maxSequence = c.maxSequence;
+      this.loadingLookups = false;
+
+      if (this.formMode === 'edit' && this.editId) {
+        this.loadBookForEdit(this.editId);
+      } else if (this.formMode === 'add') {
+        this.initAddForm();
+      } else if (this.filterBoardId || this.filterClassId || this.filterSubjectId || this.filterStatus !== '') {
+        // Dropdown filters are applied server-side, so re-run load() to
+        // honor whatever filters were set before navigating away.
+        this.load();
+      } else {
+        this.applyFilter();
+      }
+      return;
+    }
+
     this.loadingLookups = true;
     this.api.get<any>('/boards').subscribe({
       next: r => {
@@ -89,6 +142,20 @@ export class BooksComponent implements OnInit {
                 this.loadCourseTypes(() => {
                   this.loadAllBooksForLookup(() => {
                     this.loadingLookups = false;
+
+                    // Cache everything now that the full bootstrap is done.
+                    BooksComponent.cache = {
+                      boards: this.boards,
+                      classes: this.classes,
+                      subjects: this.subjects,
+                      publishers: this.publishers,
+                      masterBooks: this.masterBooks,
+                      languages: this.languages,
+                      courseTypes: this.courseTypes,
+                      books: this.books,
+                      maxSequence: this.maxSequence
+                    };
+
                     if (this.formMode === 'edit' && this.editId) {
                       this.loadBookForEdit(this.editId);
                     } else if (this.formMode === 'add') {
@@ -226,6 +293,12 @@ export class BooksComponent implements OnInit {
           }
           this.books = list;
           this.applyFilter();
+
+          // Keep the cache's book list in sync when this is the full,
+          // unfiltered fetch (board/class/subject/status all cleared).
+          if (!this.filterBoardId && !this.filterClassId && !this.filterSubjectId && this.filterStatus === '' && BooksComponent.cache) {
+            BooksComponent.cache.books = list;
+          }
         } else {
           this.toast.error(r?.message || 'Failed to load books');
         }
@@ -276,6 +349,43 @@ export class BooksComponent implements OnInit {
           this.publisherLabel(b).toLowerCase().includes(q)
         )
       : [...this.books];
+
+    // Search/filter run against the full `books` array above, so results
+    // are correct across the whole dataset. Only the on-screen table is
+    // paginated, in batches of `pageSize`.
+    this.currentPage = 1;
+    this.updatePagedView();
+  }
+
+  // ============================================================
+  // PAGINATION (client-side, batches of `pageSize`)
+  // ============================================================
+
+  get totalPages(): number {
+    return Math.max(1, Math.ceil(this.filtered.length / this.pageSize));
+  }
+
+  get pageNumbers(): number[] {
+    return Array.from({ length: this.totalPages }, (_, i) => i + 1);
+  }
+
+  updatePagedView() {
+    const start = (this.currentPage - 1) * this.pageSize;
+    this.paged = this.filtered.slice(start, start + this.pageSize);
+  }
+
+  goToPage(page: number) {
+    if (page < 1 || page > this.totalPages) return;
+    this.currentPage = page;
+    this.updatePagedView();
+  }
+
+  nextPage() {
+    this.goToPage(this.currentPage + 1);
+  }
+
+  prevPage() {
+    this.goToPage(this.currentPage - 1);
   }
 
   get statsTotal() { return this.books.length; }
@@ -520,6 +630,7 @@ export class BooksComponent implements OnInit {
         this.saving = false;
         if (r?.status) {
           this.toast.success(this.formMode === 'add' ? 'Book created' : 'Book updated');
+          BooksComponent.clearCache();
           this.goToList();
         } else {
           this.toast.error(r?.message || 'Operation failed');
@@ -546,6 +657,7 @@ export class BooksComponent implements OnInit {
       next: r => {
         if (r?.status) {
           this.toast.success('Book deleted');
+          BooksComponent.clearCache();
           this.load();
         } else {
           this.toast.error(r?.message || 'Delete failed');
@@ -566,6 +678,10 @@ export class BooksComponent implements OnInit {
         if (r?.status) {
           b.is_active = newVal;
           this.toast.success('Status updated');
+          if (BooksComponent.cache) {
+            const cached = BooksComponent.cache.books.find((x: any) => String(x.id) === String(b.id));
+            if (cached) cached.is_active = newVal;
+          }
         } else {
           this.toast.error(r?.message || 'Failed to update status');
         }

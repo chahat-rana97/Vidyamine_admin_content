@@ -35,17 +35,6 @@
     </ng-template>
 
     <div class="strip-right" *ngIf="canWrite">
-      <select class="tbtn topic-filter-select" [(ngModel)]="topicFilter" (ngModelChange)="onTopicFilterChange()">
-        <option value="">All topics</option>
-        <optgroup label="Status">
-          <option value="status:final">Final</option>
-          <option value="status:pre_final">Pre-Final</option>
-          <option value="status:pending">Pending</option>
-        </optgroup>
-        <optgroup label="Assigned to" *ngIf="assignableUsers.length">
-          <option *ngFor="let u of assignableUsers" [value]="'user:' + u.id">{{ u.name }}</option>
-        </optgroup>
-      </select>
       <button class="tbtn" (click)="triggerImportPicker(importPicker)">＋ Add new topic</button>
       <button
         class="tbtn"
@@ -90,19 +79,39 @@
     <div class="stat"><span class="k">Topics</span><span class="v">{{ statsTotalTopics }}</span></div>
     <div class="stat"><span class="k">Active</span><span class="v">{{ statsActiveTopics }}</span></div>
     <div class="stat"><span class="k">Screenshots</span><span class="v">{{ statsTotalScreenshots }}</span></div>
-    <div class="stat"><span class="k">Artifacts done</span><span class="v">{{ statsDoneArtifacts }} / {{ statsTotalSlots }}</span></div>
+    <!-- <div class="stat"><span class="k">Artifacts done</span><span class="v">{{ statsDoneArtifacts }} / {{ statsTotalSlots }}</span></div> -->
 
-    <!-- ── Export all screenshots as ZIP ── -->
-    <button
-      type="button"
-      class="export-zip-btn"
-      [disabled]="exportingZip || !statsTotalScreenshots"
-      (click)="exportScreenshotsZip()"
-      title="Download all screenshots as a ZIP, organised in one folder per topic"
-    >
-      <span *ngIf="!exportingZip">⬇ Export screenshots (ZIP)</span>
-      <span *ngIf="exportingZip">Zipping… {{ exportProgress }}%</span>
-    </button>
+    <div class="statusbar-filters" *ngIf="canWrite">
+      <select class="tbtn topic-filter-select" [(ngModel)]="statusFilter" (ngModelChange)="onTopicFilterChange()">
+        <option value="">All topics</option>
+        <option value="final">Final</option>
+        <option value="pre_final">Pre-Final</option>
+        <option value="pending">Pending</option>
+      </select>
+
+      <select class="tbtn topic-filter-select" [(ngModel)]="assignedFilter" (ngModelChange)="onTopicFilterChange()">
+        <option value="">All users</option>
+        <option *ngFor="let u of assignableUsers" [value]="u.id">{{ u.name }}</option>
+      </select>
+
+      <select class="tbtn topic-filter-select" [(ngModel)]="docFilter" (ngModelChange)="onTopicFilterChange()">
+        <option value="">All documents</option>
+        <option value="claude_ppt">Claude PPT</option>
+        <option value="gpt_ppt">ChatGPT PPT</option>
+        <option value="claude_pdf">Claude PDF</option>
+      </select>
+
+      <button
+        type="button"
+        class="export-zip-iconbtn"
+        [disabled]="exportingZip || !statsTotalScreenshots"
+        (click)="exportScreenshotsZip()"
+        title="Download all screenshots as a ZIP, organised in one folder per topic"
+      >
+        <span *ngIf="!exportingZip">⬇</span>
+        <span *ngIf="exportingZip" class="mini-spinner"></span>
+      </button>
+    </div>
   </div>
   
 
@@ -150,8 +159,8 @@
         </div>
 
         <div class="row-icons">
-          <button class="iconbtn" title="Move up" (click)="moveTopic(topicIndex(t), -1)" [disabled]="topicFilter || topicIndex(t) === 0">▲</button>
-          <button class="iconbtn" title="Move down" (click)="moveTopic(topicIndex(t), 1)" [disabled]="topicFilter || topicIndex(t) === topics.length - 1">▼</button>
+          <button class="iconbtn" title="Move up" (click)="moveTopic(topicIndex(t), -1)" [disabled]="statusFilter || assignedFilter || docFilter || topicIndex(t) === 0">▲</button>
+          <button class="iconbtn" title="Move down" (click)="moveTopic(topicIndex(t), 1)" [disabled]="statusFilter || assignedFilter || docFilter || topicIndex(t) === topics.length - 1">▼</button>
           <button
             class="status-toggle-badge"
             [ngClass]="isActive(t) ? 'status-active' : 'status-inactive'"
@@ -785,13 +794,14 @@
           <button class="slidedoc-pick-btn" (click)="triggerSlideDocPicker(slideDocFileInput)">
             ⇪ Choose file from my system
           </button>
+          <div class="slidedoc-sizehint">Max file size: {{ MAX_SLIDE_DOC_MB }} MB</div>
         </div>
 
         <!-- File picked — show validation result -->
         <div class="slidedoc-picked" *ngIf="m.pickedFile">
           <div class="slidedoc-picked-name">{{ m.pickedFile.name }}</div>
 
-          <div class="slidedoc-match-ok" *ngIf="m.nameMatches">
+          <div class="slidedoc-match-ok" *ngIf="m.nameMatches && !m.sizeError">
             ✓ Filename matches — ready to upload
           </div>
 
@@ -804,9 +814,16 @@
             </div>
           </div>
 
+          <div class="slidedoc-match-warn" *ngIf="m.nameMatches && m.sizeError">
+            ⚠ {{ m.sizeError }}
+            <div class="slidedoc-warn-actions">
+              <button class="sd-action sd-pickagain" (click)="triggerSlideDocPicker(slideDocFileInput)">Choose a different file</button>
+            </div>
+          </div>
+
           <div class="slidedoc-actions-row" *ngIf="m.nameMatches">
             <button class="sd-action sd-cancel" [disabled]="m.uploading" (click)="slideDocCancelPickedFile()">Cancel</button>
-            <button class="sd-action sd-upload" [disabled]="m.uploading" (click)="confirmSlideDocUpload()">
+            <button class="sd-action sd-upload" [disabled]="m.uploading || !!m.sizeError" (click)="confirmSlideDocUpload()">
               {{ m.uploading ? 'Uploading…' : '⇪ Upload' }}
             </button>
           </div>

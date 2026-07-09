@@ -105,7 +105,25 @@
         <div class="table-title">All Books ({{ filtered.length }})</div>
         <div class="table-subtitle">Live search updates as you type</div>
       </div>
-      <div class="table-count-pill">Showing {{ filtered.length }} of {{ books.length }}</div>
+      <div class="table-header-right">
+        <div class="table-count-pill">
+          Showing {{ filtered.length ? (((currentPage - 1) * pageSize) + 1) : 0 }}–{{ ((currentPage - 1) * pageSize) + paged.length }} of {{ filtered.length }}
+        </div>
+        <div class="pagination-bar pagination-bar--top" *ngIf="filtered.length">
+          <button class="pg-btn" (click)="prevPage()" [disabled]="currentPage === 1">‹ Prev</button>
+
+          <div class="pg-numbers">
+            <button
+              *ngFor="let p of pageNumbers"
+              class="pg-num"
+              [class.pg-num--active]="p === currentPage"
+              (click)="goToPage(p)"
+            >{{ p }}</button>
+          </div>
+
+          <button class="pg-btn" (click)="nextPage()" [disabled]="currentPage === totalPages">Next ›</button>
+        </div>
+      </div>
     </div>
 
     <div class="table-scroll" *ngIf="filtered.length; else empty">
@@ -128,7 +146,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let b of filtered">
+          <tr *ngFor="let b of paged">
             <td class="idx">
               <span class="seq-badge">{{ b.sequence_number ?? '-' }}</span>
             </td>
@@ -191,6 +209,22 @@
         <p>No books found{{ search ? ' for "' + search + '"' : '' }}</p>
       </div>
     </ng-template>
+
+    <!-- Pagination Bar -->
+    <div class="pagination-bar" *ngIf="filtered.length">
+      <button class="pg-btn" (click)="prevPage()" [disabled]="currentPage === 1">‹ Prev</button>
+
+      <div class="pg-numbers">
+        <button
+          *ngFor="let p of pageNumbers"
+          class="pg-num"
+          [class.pg-num--active]="p === currentPage"
+          (click)="goToPage(p)"
+        >{{ p }}</button>
+      </div>
+
+      <button class="pg-btn" (click)="nextPage()" [disabled]="currentPage === totalPages">Next ›</button>
+    </div>
   </div>
 
   <ng-template #loadingTpl>

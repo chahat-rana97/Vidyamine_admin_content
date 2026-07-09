@@ -16,7 +16,7 @@ import { AuthService } from '../../core/services/auth.service';
  */
 type TrackType = 'script' | 'slide' | 'quiz' | 'exer';
 
-const TRACK_TYPES: TrackType[] = ['script', 'quiz', 'exer', 'slide'];
+const TRACK_TYPES: TrackType[] = ['slide', 'quiz', 'exer', 'script'];
 const TRACK_LABEL: Record<TrackType, string> = {
   script: 'Script', slide: 'Slide', quiz: 'Quiz', exer: 'Exercise'
 };
@@ -107,6 +107,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ── Slide-tile documents (Claude PPT / ChatGPT PPT / Claude PDF) ──
   readonly ATTACH_BASE = 'https://uat.vidyamine.com/dev_chahat/getadminvm/topic_attachments';
+  readonly MAX_SLIDE_DOC_MB = 5;
   SLIDE_DOC_TYPES = SLIDE_DOC_TYPES;
   SLIDE_DOC_DEFS = SLIDE_DOC_DEFS;
 
@@ -119,6 +120,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     pickedName: string;             // basename (no ext) of the picked file, for the mismatch check
     pickedExt: string;
     nameMatches: boolean;
+    sizeError: string;              // non-empty when picked file exceeds the size limit
     uploading: boolean;
     deleting: boolean;
   } | null = null;
@@ -152,7 +154,9 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
   assigningTopicId: { [topicId: number]: boolean } = {};
 
   // ── Combined filter: '' = all, 'status:final' / 'status:pending', or 'user:<id>' ──
-  topicFilter: string = '';
+  statusFilter: string = '';
+  assignedFilter: string = '';
+  docFilter: string = '';
   filteredTopics: any[] = [];
 
   // ── Final <-> Pending status change, unlock modal state ──
@@ -419,24 +423,28 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  /** Applies the combined user/status filter dropdown to `this.topics` -> `this.filteredTopics`. */
+  /** Applies the combined status / assigned-to / document filters to `this.topics` -> `this.filteredTopics`. */
   applyTopicFilter() {
-    if (!this.topicFilter) {
-      this.filteredTopics = this.topics;
-      return;
+    let result = this.topics;
+
+    if (this.statusFilter === 'final') {
+      result = result.filter(t => t.topic_status === 'final');
+    } else if (this.statusFilter === 'pre_final') {
+      result = result.filter(t => t.topic_status === 'pre_final');
+    } else if (this.statusFilter === 'pending') {
+      result = result.filter(t => (t.topic_status || 'pending') === 'pending');
     }
-    if (this.topicFilter === 'status:final') {
-      this.filteredTopics = this.topics.filter(t => t.topic_status === 'final');
-    } else if (this.topicFilter === 'status:pre_final') {
-      this.filteredTopics = this.topics.filter(t => t.topic_status === 'pre_final');
-    } else if (this.topicFilter === 'status:pending') {
-      this.filteredTopics = this.topics.filter(t => (t.topic_status || 'pending') === 'pending');
-    } else if (this.topicFilter.startsWith('user:')) {
-      const uid = this.topicFilter.slice(5);
-      this.filteredTopics = this.topics.filter(t => String(t.assigned_to) === uid);
-    } else {
-      this.filteredTopics = this.topics;
+
+    if (this.assignedFilter) {
+      result = result.filter(t => String(t.assigned_to) === String(this.assignedFilter));
     }
+
+    if (this.docFilter) {
+      const docType = this.docFilter as SlideDocType;
+      result = result.filter(t => this.slideDocAttached(t, docType));
+    }
+
+    this.filteredTopics = result;
   }
 
   onTopicFilterChange() { this.applyTopicFilter(); }
@@ -957,6 +965,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
       pickedName: '',
       pickedExt: '',
       nameMatches: false,
+      sizeError: '',
       uploading: false,
       deleting: false
     };
@@ -974,6 +983,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.slideDocModal.pickedName = '';
     this.slideDocModal.pickedExt = '';
     this.slideDocModal.nameMatches = false;
+    this.slideDocModal.sizeError = '';
   }
 
   slideDocBackToView() {
@@ -986,7 +996,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     fileInput.click();
   }
 
-  /** Runs when a file is chosen in the upload stage — validates the name, no upload yet. */
+  /** Runs when a file is chosen in the upload stage — validates the name & size, no upload yet. */
   onSlideDocFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -1000,10 +1010,16 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     const expectedBase = this.expectedSlideDocBase(this.slideDocModal.topic, this.slideDocModal.def.type);
     const extOk = this.slideDocModal.def.exts.includes(ext);
 
+    const maxBytes = this.MAX_SLIDE_DOC_MB * 1024 * 1024;
+    const fileSizeMb = (file.size / (1024 * 1024)).toFixed(1);
+
     this.slideDocModal.pickedFile = file;
     this.slideDocModal.pickedName = base;
     this.slideDocModal.pickedExt = ext;
-    this.slideDocModal.nameMatches = (base === expectedBase) && extOk;
+    this.slideDocModal.nameMatches = (base.toLowerCase() === expectedBase.toLowerCase()) && extOk;
+    this.slideDocModal.sizeError = file.size > maxBytes
+      ? `This file is ${fileSizeMb} MB. Max allowed size is ${this.MAX_SLIDE_DOC_MB} MB — please choose a smaller file.`
+      : '';
   }
 
   /** User clicks "Rename & Continue" on a mismatched file — renames it in-memory to the expected name. */
@@ -1032,12 +1048,17 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.slideDocModal.pickedName = '';
     this.slideDocModal.pickedExt = '';
     this.slideDocModal.nameMatches = false;
+    this.slideDocModal.sizeError = '';
   }
 
-  /** Confirms upload — only enabled once nameMatches is true. */
+  /** Confirms upload — only enabled once nameMatches is true and file is within the size limit. */
   confirmSlideDocUpload() {
     const m = this.slideDocModal;
     if (!m || !m.pickedFile || !m.nameMatches || m.uploading) return;
+    if (m.sizeError) {
+      this.toast.error(m.sizeError);
+      return;
+    }
 
     const fileToUpload = m.pickedFile; // narrowed to File, avoids TS2322 below
 
@@ -1055,15 +1076,27 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
           this.toast.success(`${m.def.label} attached`);
           this.closeSlideDocModal();
         } else {
-          this.toast.error(r?.message || 'Upload failed');
+          this.toast.error(this.slideDocUploadErrorMessage(r?.message, fileToUpload, 0));
         }
       },
       error: (e: any) => {
         if (m) m.uploading = false;
-        const msg = e?.error?.message || 'Upload failed';
-        this.toast.error(msg);
+        this.toast.error(this.slideDocUploadErrorMessage(e?.error?.message, fileToUpload, e?.status));
       }
     });
+  }
+
+  /** Builds a clear, user-facing message for slide-doc upload failures, calling out oversize files specifically. */
+  private slideDocUploadErrorMessage(serverMessage: string | undefined, file: File, httpStatus: number): string {
+    const fileSizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    const looksLikeSizeIssue =
+      httpStatus === 413 ||
+      /too large|payload|max.*size|filesize|file size|exceeds/i.test(serverMessage || '');
+
+    if (looksLikeSizeIssue) {
+      return `This file is ${fileSizeMb} MB, which is larger than the server's ${this.MAX_SLIDE_DOC_MB} MB upload limit. Please choose a smaller file.`;
+    }
+    return serverMessage || 'Upload failed';
   }
 
   deleteSlideDoc() {

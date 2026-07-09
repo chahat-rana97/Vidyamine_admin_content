@@ -44,7 +44,7 @@
   border-radius: 8px;
   background: var(--c-bg-elevated);
   border: 1px solid var(--c-border);
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   font-size: 22px;
   display: flex;
   align-items: center;
@@ -84,6 +84,14 @@
   white-space: nowrap;
 }
 
+.statusbar-filters {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .strip-right {
   margin-left: auto;
   display: flex;
@@ -94,7 +102,7 @@
 .tbtn {
   border: 1px solid var(--c-border);
   background: var(--c-bg-surface);
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   border-radius: 8px;
   padding: 9px 14px;
   font-size: 13px;
@@ -168,7 +176,7 @@
   font-size: 13px;
 }
 .stat .k {
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .stat .v {
   font-weight: 700;
@@ -220,7 +228,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 
 .shotgrid {
@@ -246,7 +254,7 @@
   align-items: center;
   justify-content: center;
   font-size: 9px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   text-align: center;
   padding: 4px;
 }
@@ -330,7 +338,7 @@
   border-radius: 6px;
   border: 1px solid var(--c-border);
   background: var(--c-bg-elevated);
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   cursor: pointer;
   font-size: 11px;
   display: flex;
@@ -504,7 +512,7 @@
 .assign-label {
   font-size: 10px;
   font-weight: 700;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -581,7 +589,7 @@
 }
 .unlock-modal-sub {
   font-size: 13px;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   line-height: 1.5;
   margin: 0 0 14px;
 }
@@ -617,7 +625,7 @@
 }
 .unlock-btn--cancel {
   background: var(--c-bg-elevated);
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
 }
 .unlock-btn--confirm {
   background: var(--c-primary);
@@ -647,7 +655,7 @@
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -758,7 +766,7 @@
 }
 
 .yt-cancel-btn {
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 
 .rightcell {
@@ -784,8 +792,8 @@
 }
 
 .capinput {
-  flex: 1;
-  min-width: 160px;
+  flex: 1 1 auto;
+  min-width: 140px;
   background: var(--c-bg-elevated);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-sm);
@@ -795,7 +803,7 @@
   transition: border-color 0.15s;
 }
 .capinput::placeholder {
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .capinput:focus {
   outline: none;
@@ -804,17 +812,18 @@
 
 .topiccode {
   font-family: monospace;
-  font-size: 10px;
-  color: var(--c-text-muted);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text-primary);
   background: var(--c-bg-elevated);
   border: 1px solid var(--c-border);
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-radius: 5px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
-  flex-shrink: 0;
+  overflow: visible;
+  text-overflow: unset;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .autofill {
@@ -886,7 +895,7 @@
   padding: 2px 7px;
   letter-spacing: 0.3px;
   background: var(--c-bg-surface);
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 
 .abactions {
@@ -903,7 +912,7 @@
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   white-space: nowrap;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -931,7 +940,7 @@
 .abempty {
   padding: 0 9px 10px;
   font-size: 10.5px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   font-style: italic;
 }
 
@@ -942,7 +951,7 @@
   justify-content: center;
   gap: 12px;
   padding: 48px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius);
@@ -969,7 +978,7 @@
   justify-content: center;
   gap: 10px;
   padding: 56px 24px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .empty-state .empty-icon {
   font-size: 36px;
@@ -997,11 +1006,11 @@
 }
 .modal-box.import-box .import-sub {
   font-size: 13px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   margin-top: 4px;
 }
 .modal-box.import-box .import-sub code {
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   background: var(--c-bg-surface);
   padding: 1px 6px;
   border-radius: 4px;
@@ -1074,7 +1083,7 @@
 }
 .modal-box.import-box .import-fname {
   font-size: 12px;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   font-family: "SFMono-Regular", Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1103,16 +1112,16 @@
 }
 .modal-box.import-box .import-note {
   font-size: 12px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .modal-box.import-box .import-warn-detail {
   font-size: 12px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   line-height: 1.5;
   word-break: break-word;
 }
 .modal-box.import-box .import-warn-detail code {
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   background: var(--c-bg-elevated);
   padding: 1px 5px;
   border-radius: 4px;
@@ -1130,7 +1139,7 @@
 .modal-box.import-box .import-fix-block label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -1187,10 +1196,10 @@
 .modal-box.import-box .import-skip-btn {
   background: transparent;
   border: 1px solid var(--c-border);
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .modal-box.import-box .import-skip-btn:hover {
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
 }
 .modal-box.import-box .import-gap-banner {
   flex-shrink: 0;
@@ -1253,7 +1262,7 @@
 
 .modal-desc {
   font-size: 14px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   line-height: 1.6;
 }
 
@@ -1267,7 +1276,7 @@
 .btn-ghost {
   background: transparent;
   border: 1px solid var(--c-border);
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   border-radius: 8px;
   padding: 10px 18px;
   font-size: 14px;
@@ -1381,7 +1390,7 @@
   font-size: 12px;
   min-width: 42px;
   text-align: center;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
 }
 
 .lb-close {
@@ -1495,7 +1504,7 @@
 
 .anno-sw-label {
   font-size: 11px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   min-width: 28px;
 }
 
@@ -1705,7 +1714,7 @@
   display: block;
   font-size: 10.5px;
   font-weight: 700;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 6px;
@@ -1714,7 +1723,7 @@
 .lb-fname {
   font-family: monospace;
   font-size: 11px;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   word-break: break-all;
   background: var(--c-bg-elevated);
   border: 1px solid var(--c-border);
@@ -1735,7 +1744,7 @@
   resize: vertical;
 }
 .lb-caption::placeholder {
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .lb-caption:focus {
   outline: none;
@@ -1777,7 +1786,7 @@
 
 .lb-hint {
   font-size: 11px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   margin-top: auto;
 }
 
@@ -1828,7 +1837,7 @@
 
 .chapter-pdf-sub {
   font-size: 11px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1842,7 +1851,7 @@
 
 .chapter-pdf-viewhint {
   font-family: inherit;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   font-style: italic;
   font-weight: 400;
 }
@@ -1902,7 +1911,7 @@
   border-radius: 6px;
   border: 1px solid var(--c-border);
   background: transparent;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   cursor: pointer;
   font-size: 13px;
   display: flex;
@@ -1946,6 +1955,31 @@
   color: var(--c-gold);
 }
 .export-zip-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.export-zip-iconbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-surface);
+  color: var(--c-text-primary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  flex: none;
+}
+.export-zip-iconbtn:hover:not(:disabled) {
+  border-color: var(--c-gold);
+  background: rgba(216, 180, 64, 0.1);
+  color: var(--c-gold);
+}
+.export-zip-iconbtn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -2057,7 +2091,7 @@
   margin-left: auto;
   font-family: monospace;
   font-size: 10.5px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   background: var(--c-bg-elevated);
   border: 1px solid var(--c-border);
   border-radius: 5px;
@@ -2074,7 +2108,7 @@
   border-radius: 6px;
   border: 1px solid var(--c-border);
   background: transparent;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   cursor: pointer;
   font-size: 12px;
   display: flex;
@@ -2131,13 +2165,13 @@
 
 .slidedoc-filehint {
   font-size: 11.5px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 
 .slidedoc-filename-bar {
   font-family: monospace;
   font-size: 11px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
   text-align: center;
 }
 
@@ -2160,7 +2194,7 @@
   font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .sd-action:hover:not(:disabled) {
@@ -2199,7 +2233,7 @@
   flex-direction: column;
   gap: 4px;
   font-size: 11px;
-  color: var(--c-text-muted);
+  color: var(--c-text-primary);
 }
 .slidedoc-expected label {
   font-weight: 700;
@@ -2210,7 +2244,7 @@
 .slidedoc-expected code {
   font-family: monospace;
   font-size: 11.5px;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   background: var(--c-bg-surface);
   border: 1px solid var(--c-border);
   border-radius: 6px;
@@ -2220,8 +2254,15 @@
 
 .slidedoc-picker {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   padding: 24px 0;
+}
+
+.slidedoc-sizehint {
+  font-size: 11.5px;
+  color: var(--c-text-muted, #7c83a3);
 }
 
 .slidedoc-pick-btn {
@@ -2282,7 +2323,7 @@
   font-family: monospace;
   font-weight: 400;
   font-size: 11px;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   background: var(--c-bg-elevated);
   border: 1px solid var(--c-border);
   border-radius: 5px;
