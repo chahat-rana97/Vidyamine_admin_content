@@ -193,6 +193,7 @@
 }
 
 .topic-row {
+  position: relative;
   display: grid;
   grid-template-columns: 190px 1fr;
   gap: 18px;
@@ -200,11 +201,76 @@
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius);
   padding: 16px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 @media (max-width: 880px) {
   .topic-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Selected-row highlight, driven by the corner checkbox */
+.topic-row--selected {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 1px var(--c-primary);
+}
+
+/* ── Bulk-select checkbox, pinned to the top-left corner of the tile ── */
+.topic-select-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+.topic-select-check input {
+  position: absolute;
+  opacity: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  cursor: pointer;
+}
+.topic-select-box {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid #f87171;
+  background: var(--c-bg-elevated);
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.18);
+  display: inline-block;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.topic-select-box::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.topic-select-check input:checked + .topic-select-box {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+.topic-select-check input:checked + .topic-select-box::after {
+  opacity: 1;
+}
+.topic-select-check:hover .topic-select-box {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
 }
 
 .shotcell {
@@ -229,6 +295,9 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--c-text-primary);
+  /* Leave clear room on the left for the corner select-checkbox so the
+     two never visually overlap. */
+  margin-left: 26px;
 }
 
 .shotgrid {
@@ -1301,6 +1370,118 @@
   background: rgba(239, 68, 68, 0.26);
 }
 
+/* ── Bulk-delete confirm modal: list of affected topic names ── */
+.bulk-delete-namelist {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 160px;
+  overflow-y: auto;
+  text-align: left;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--c-text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bulk-delete-namelist li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bulk-delete-namelist-more {
+  color: var(--c-text-primary);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ============================================================ */
+/* BULK-SELECT DRAWER */
+/* ============================================================ */
+.bulk-select-drawer {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 900;
+  animation: bulkDrawerRise 0.18s ease-out;
+}
+@keyframes bulkDrawerRise {
+  from { opacity: 0; transform: translate(-50%, 14px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.bulk-select-drawer-inner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.bulk-select-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.bulk-select-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--c-primary);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.bulk-select-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+
+.bulk-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bulk-select-actions .btn-ghost,
+.bulk-select-actions .btn-danger {
+  padding: 8px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .bulk-select-drawer {
+    left: 12px;
+    right: 12px;
+    bottom: 14px;
+    transform: none;
+  }
+  .bulk-select-drawer-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .bulk-select-actions {
+    justify-content: flex-end;
+  }
+}
+
 .lightbox-overlay {
   position: fixed;
   inset: 0;
@@ -2334,4 +2515,74 @@
 .slidedoc-warn-actions {
   display: flex;
   gap: 8px;
+}
+/* ── Slide doc version slots (Original + v1..v5) ── */
+.sd-slot-count {
+  font-size: 8px;
+  font-weight: 800;
+  opacity: 0.75;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-left: 2px;
+}
+
+.slidedoc-slotlabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-dim, #9ca3af);
+  margin-left: -6px;
+}
+
+.slidedoc-slotlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.slidedoc-slotrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.slidedoc-slotrow:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.slidedoc-slotrow .sd-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--c-danger, #ef4444);
+}
+.slidedoc-slotrow.attached .sd-dot {
+  background: var(--c-success, #22c55e);
+}
+.slidedoc-slotrow-label {
+  font-weight: 700;
+  font-size: 13px;
+  flex: none;
+  min-width: 84px;
+  color: var(--c-text-primary, #eef0f8);
+}
+.slidedoc-slotrow-status {
+  font-size: 11px;
+  color: #4ade80;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slidedoc-slotrow-status.empty {
+  color: var(--c-text-dim, #9ca3af);
 }

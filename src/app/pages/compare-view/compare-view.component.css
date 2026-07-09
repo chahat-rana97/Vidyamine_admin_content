@@ -161,6 +161,31 @@
 .cv-picker-confirm:hover:not(:disabled) { background: var(--accent-hover); }
 .cv-picker-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.cv-picker-sublabel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 8px 0 2px; }
+.cv-picker-subopt {
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cv-picker-subopt:hover { border-color: var(--accent); }
+.cv-picker-subopt.selected { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.cv-picker-samewarn { font-size: 12px; color: var(--warning, #b45309); margin-top: 10px; }
+
+.cv-pane-versionbadge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
 /* ── Split layout ── */
 .cv-split-wrap {
   flex: 1;

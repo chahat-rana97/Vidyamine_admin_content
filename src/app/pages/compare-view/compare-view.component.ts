@@ -87,6 +87,15 @@ export const COMPARE_DOC_LABEL: Record<CompareDocType, string> = {
   claude_pdf: 'Claude PDF'
 };
 
+/** Version slot for a doc type — null/undefined = the Original upload.
+ *  Not applicable to 'screenshots'. Keep in sync with the backend's
+ *  slideDocVersions() and the Topics screen's SLIDE_DOC_VERSIONS. */
+export type CompareVersion = 'v1' | 'v2' | 'v3' | 'v4' | 'v5';
+export const COMPARE_VERSIONS: CompareVersion[] = ['v1', 'v2', 'v3', 'v4', 'v5'];
+export const COMPARE_VERSION_LABEL: Record<CompareVersion, string> = {
+  v1: 'Version 1', v2: 'Version 2', v3: 'Version 3', v4: 'Version 4', v5: 'Version 5'
+};
+
 /**
  * Sticky-note color presets shown as small swatch circles in the edit UI.
  * Each preset is a [box base color (hex, opacity applied separately),
@@ -127,6 +136,8 @@ interface CommentPin {
   id: number;
   topic_id: number;
   doc_type: CompareDocType;
+  /** null/undefined = comment belongs to the Original slot. */
+  version?: CompareVersion | null;
   page_key: string;
   /** Pin position as a 0–100 percentage of the item's own rendered width/height. Null/undefined = a plain footer comment (not pinned anywhere on the page). */
   x?: number | string | null;
@@ -155,6 +166,8 @@ interface ItemStatus {
   id?: number;
   topic_id: number;
   doc_type: CompareDocType;
+  /** null/undefined = status belongs to the Original slot. */
+  version?: CompareVersion | null;
   page_key: string;
   is_final: boolean | number;
   marked_by: string | null;
@@ -164,6 +177,8 @@ interface ItemStatus {
 /** Runtime state for one side (left or right) of the split view. */
 interface PaneState {
   docType: CompareDocType | null;
+  /** null/undefined = Original slot. Ignored when docType === 'screenshots'. */
+  version: CompareVersion | null;
   loading: boolean;
   error: string;
   items: PaneItem[];
@@ -211,6 +226,9 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   pickerOpen = true;
   pickerLeft: CompareDocType | null = null;
   pickerRight: CompareDocType | null = null;
+  /** Version sub-selection, shown once a doc type (other than screenshots) is chosen. null = Original. */
+  pickerLeftVersion: CompareVersion | null = null;
+  pickerRightVersion: CompareVersion | null = null;
 
   left: PaneState = this.emptyPane();
   right: PaneState = this.emptyPane();
@@ -317,7 +335,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private emptyPane(): PaneState {
     return {
-      docType: null, loading: false, error: '', items: [], activeIndex: 0,
+      docType: null, version: null, loading: false, error: '', items: [], activeIndex: 0,
       pdfDoc: null, pptxBytes: null, needsPptxOnly: false,
       naturalSize: null, pageRendering: false, zoom: 1, pptxAspectRatio: null
     };
@@ -329,6 +347,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
     const leftParam = this.route.snapshot.queryParamMap.get('left') as CompareDocType | null;
     const rightParam = this.route.snapshot.queryParamMap.get('right') as CompareDocType | null;
+    const leftVersionParam = this.route.snapshot.queryParamMap.get('leftVersion') as CompareVersion | null;
+    const rightVersionParam = this.route.snapshot.queryParamMap.get('rightVersion') as CompareVersion | null;
 
     if (!this.topicId) {
       this.toast.error('No topic selected for comparison');
@@ -342,6 +362,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     if (leftParam && rightParam) {
       this.pickerLeft = leftParam;
       this.pickerRight = rightParam;
+      this.pickerLeftVersion = leftVersionParam || null;
+      this.pickerRightVersion = rightVersionParam || null;
       this.loadTopic(() => this.confirmPicker());
     } else {
       this.loadTopic();
@@ -403,10 +425,66 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
       const shots = this.parseJsonArray(this.topic.screenshots);
       if (shots.length) out.push('screenshots');
     }
-    if (this.topic.slide_claude_ppt) out.push('claude_ppt');
-    if (this.topic.slide_gpt_ppt) out.push('gpt_ppt');
-    if (this.topic.slide_claude_pdf) out.push('claude_pdf');
+    // A doc type is offered if ANY slot (original or v1..v5) has a file —
+    // the version sub-picker narrows down to the specific slot afterward.
+    if (this.anySlotFilled('claude_ppt')) out.push('claude_ppt');
+    if (this.anySlotFilled('gpt_ppt')) out.push('gpt_ppt');
+    if (this.anySlotFilled('claude_pdf')) out.push('claude_pdf');
     return out;
+  }
+
+  private slotFieldFor(docType: CompareDocType, version: CompareVersion | null): string | null {
+    const base: Record<string, string> = {
+      claude_ppt: 'slide_claude_ppt', gpt_ppt: 'slide_gpt_ppt', claude_pdf: 'slide_claude_pdf'
+    };
+    const field = base[docType];
+    if (!field) return null; // 'screenshots' has no slot field
+    return version ? `${field}_${version}` : field;
+  }
+
+  private anySlotFilled(docType: CompareDocType): boolean {
+    if (!this.topic) return false;
+    const original = this.slotFieldFor(docType, null);
+    if (original && this.topic[original]) return true;
+    return COMPARE_VERSIONS.some(v => {
+      const f = this.slotFieldFor(docType, v);
+      return f && !!this.topic[f];
+    });
+  }
+
+  /** Which slots (Original + v1..v5) actually have a file for this doc type — drives the version sub-picker. */
+  availableVersionsFor(docType: CompareDocType | null): (CompareVersion | null)[] {
+    if (!docType || docType === 'screenshots' || !this.topic) return [];
+    const out: (CompareVersion | null)[] = [];
+    const original = this.slotFieldFor(docType, null);
+    if (original && this.topic[original]) out.push(null);
+    for (const v of COMPARE_VERSIONS) {
+      const f = this.slotFieldFor(docType, v);
+      if (f && this.topic[f]) out.push(v);
+    }
+    return out;
+  }
+
+  versionLabel(version: CompareVersion | null): string {
+    return version ? COMPARE_VERSION_LABEL[version] : 'Original';
+  }
+
+  /**
+   * Comments and item-status are keyed by a plain `doc_type` string on the
+   * backend (no DB migration for those tables). To keep Original vs v1..v5
+   * annotations independent without touching that schema, we encode the
+   * version into the string sent/read for those two endpoints only:
+   * 'claude_ppt' (Original) vs 'claude_ppt::v1' .. '::v5'.
+   * The Slide-doc file endpoints are unaffected — they use pane.docType +
+   * pane.version separately via a real `version` query param.
+   */
+  private composeDocTypeKey(docType: CompareDocType | null, version: CompareVersion | null | undefined): string {
+    if (!docType) return '';
+    return version ? `${docType}::${version}` : docType;
+  }
+
+  private paneDocTypeKey(pane: PaneState): string {
+    return this.composeDocTypeKey(pane.docType, pane.version);
   }
 
   private parseJsonArray(val: any): string[] {
@@ -425,13 +503,32 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     this.pickerOpen = true;
   }
 
+  /** Step 1: choose the doc type for a side. Resets that side's version to the first available slot. */
   choosePickerSide(side: 'left' | 'right', docType: CompareDocType) {
-    if (side === 'left') this.pickerLeft = docType;
-    else this.pickerRight = docType;
+    const versions = this.availableVersionsFor(docType);
+    const defaultVersion = versions.length ? versions[0] : null;
+    if (side === 'left') {
+      this.pickerLeft = docType;
+      this.pickerLeftVersion = defaultVersion;
+    } else {
+      this.pickerRight = docType;
+      this.pickerRightVersion = defaultVersion;
+    }
+  }
+
+  /** Step 2 (only for non-screenshot doc types with more than one slot): choose which version/slot. */
+  choosePickerVersion(side: 'left' | 'right', version: CompareVersion | null) {
+    if (side === 'left') this.pickerLeftVersion = version;
+    else this.pickerRightVersion = version;
   }
 
   get pickerValid(): boolean {
-    return !!this.pickerLeft && !!this.pickerRight && this.pickerLeft !== this.pickerRight;
+    if (!this.pickerLeft || !this.pickerRight) return false;
+    // Same doc type is allowed now IF the versions differ (e.g. Claude PPT v1 vs Claude PPT v2).
+    if (this.pickerLeft === this.pickerRight) {
+      return this.pickerLeftVersion !== this.pickerRightVersion;
+    }
+    return true;
   }
 
   confirmPicker() {
@@ -440,7 +537,9 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     this.left = this.emptyPane();
     this.right = this.emptyPane();
     this.left.docType = this.pickerLeft;
+    this.left.version = this.pickerLeft === 'screenshots' ? null : this.pickerLeftVersion;
     this.right.docType = this.pickerRight;
+    this.right.version = this.pickerRight === 'screenshots' ? null : this.pickerRightVersion;
     this.pptxViewer = {};
     this.loadPane('left');
     this.loadPane('right');
@@ -471,9 +570,11 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
       if (pane.docType === 'screenshots') {
         this.loadScreenshotsPane(pane);
       } else if (pane.docType === 'claude_pdf') {
-        await this.loadPdfPane(pane, this.topic.slide_claude_pdf, side);
+        const field = this.slotFieldFor('claude_pdf', pane.version);
+        await this.loadPdfPane(pane, field ? this.topic[field] : null, side);
       } else if (pane.docType === 'claude_ppt' || pane.docType === 'gpt_ppt') {
-        const filename = pane.docType === 'claude_ppt' ? this.topic.slide_claude_ppt : this.topic.slide_gpt_ppt;
+        const field = this.slotFieldFor(pane.docType, pane.version);
+        const filename = field ? this.topic[field] : null;
         await this.loadPptxPane(pane, filename, side);
       }
     } catch (e: any) {
@@ -509,9 +610,10 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   // ============================================================
 
   private async loadPdfPane(pane: PaneState, filename: string | null, side: 'left' | 'right') {
-    if (!filename) { pane.error = 'No Claude PDF attached yet.'; return; }
+    if (!filename) { pane.error = `No Claude PDF (${this.versionLabel(pane.version)}) attached yet.`; return; }
 
-    const url = `${this.API_BASE}/topics/${this.topicId}/slide-doc/claude_pdf`;
+    const url = `${this.API_BASE}/topics/${this.topicId}/slide-doc/claude_pdf` +
+      (pane.version ? `?version=${pane.version}` : '');
 
     // Fetch the bytes ourselves first (instead of handing pdf.js a bare URL)
     // so we get one clear, consistent error path for network/HTTP failures,
@@ -687,7 +789,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private async loadPptxPane(pane: PaneState, filename: string | null, side: 'left' | 'right') {
     if (!filename) {
-      pane.error = `No ${pane.docType === 'claude_ppt' ? 'Claude' : 'ChatGPT'} PPT attached yet.`;
+      pane.error = `No ${pane.docType === 'claude_ppt' ? 'Claude' : 'ChatGPT'} PPT (${this.versionLabel(pane.version)}) attached yet.`;
       return;
     }
     const ext = (filename.split('.').pop() || '').toLowerCase();
@@ -697,7 +799,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
       return;
     }
 
-    const url = `${this.API_BASE}/topics/${this.topicId}/slide-doc/${pane.docType}`;
+    const url = `${this.API_BASE}/topics/${this.topicId}/slide-doc/${pane.docType}` +
+      (pane.version ? `?version=${pane.version}` : '');
     let res: Response;
     try {
       res = await fetch(url);
@@ -1038,10 +1141,11 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const pane = this.paneOf(side);
     if (!pane.docType || !this.topicId) return;
 
+    const key = this.paneDocTypeKey(pane);
     this.loadingComments = true;
-    this.api.get<any>(`/topics/${this.topicId}/comparison-comments?doc_type=${pane.docType}`).subscribe({
+    this.api.get<any>(`/topics/${this.topicId}/comparison-comments?doc_type=${key}`).subscribe({
       next: (r: any) => {
-        const others = this.comments.filter(c => c.doc_type !== pane.docType);
+        const others = this.comments.filter(c => (c.doc_type as any) !== key);
         this.comments = [...others, ...(r?.data || [])];
         this.loadingComments = false;
       },
@@ -1062,10 +1166,11 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   allCommentsFor(side: 'left' | 'right'): (CommentPin & { pageLabel: string; pageIndex: number })[] {
     const pane = this.paneOf(side);
     if (!pane.docType) return [];
+    const key = this.paneDocTypeKey(pane);
     const orderOf = new Map(pane.items.map((it, i) => [it.pageKey, i]));
     const labelOf = new Map(pane.items.map(it => [it.pageKey, it.label]));
     return this.comments
-      .filter(c => c.doc_type === pane.docType)
+      .filter(c => (c.doc_type as any) === key)
       .map(c => ({
         ...c,
         pageLabel: labelOf.get(c.page_key) || c.page_key,
@@ -1180,7 +1285,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const pane = this.paneOf(side);
     const pageKey = this.currentPageKey(side);
     if (!pane.docType || !pageKey) return [];
-    return this.comments.filter(c => c.doc_type === pane.docType && c.page_key === pageKey);
+    const key = this.paneDocTypeKey(pane);
+    return this.comments.filter(c => (c.doc_type as any) === key && c.page_key === pageKey);
   }
 
   /** Same as commentsFor(), but for a specific item index rather than the pane's activeIndex — used by the vertical scroll list where every slide/page is visible at once. Returns EVERY comment on the item (both plain footer comments and pinned sticky notes) — use footerCommentsForIndex()/pinnedCommentsForIndex() to split them apart. */
@@ -1188,7 +1294,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const pane = this.paneOf(side);
     const pageKey = pane.items[index]?.pageKey;
     if (!pane.docType || !pageKey) return [];
-    return this.comments.filter(c => c.doc_type === pane.docType && c.page_key === pageKey);
+    const key = this.paneDocTypeKey(pane);
+    return this.comments.filter(c => (c.doc_type as any) === key && c.page_key === pageKey);
   }
 
   /** True if a CommentPin has a real x/y pin position (a sticky note), vs a plain footer comment. */
@@ -1336,7 +1443,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!pane.docType || !pageKey) return;
 
     const body: any = {
-      doc_type: pane.docType,
+      doc_type: this.paneDocTypeKey(pane),
       page_key: pageKey,
       text, x, y,
       box_color: this.hexToRgba(boxHex, opacity),
@@ -1656,7 +1763,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!pane.docType || !pageKey) return;
 
     const body: any = {
-      doc_type: pane.docType,
+      doc_type: this.paneDocTypeKey(pane),
       page_key: pageKey,
       text
     };
@@ -1734,27 +1841,27 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   // MARK FINAL / PENDING (per page, slide, or screenshot)
   // ============================================================
 
-  private itemStatusKey(docType: CompareDocType, pageKey: string): string {
+  private itemStatusKey(docType: string, pageKey: string): string {
     return `${docType}::${pageKey}`;
   }
 
-  /** Loads the mark-final status of every item for the given side's current doc type. */
+  /** Loads the mark-final status of every item for the given side's current doc type + version. */
   loadItemStatusesFor(side: 'left' | 'right') {
     const pane = this.paneOf(side);
     if (!pane.docType || !this.topicId) return;
 
-    this.api.get<any>(`/topics/${this.topicId}/item-status?doc_type=${pane.docType}`).subscribe({
+    const key = this.paneDocTypeKey(pane);
+    this.api.get<any>(`/topics/${this.topicId}/item-status?doc_type=${key}`).subscribe({
       next: (r: any) => {
-        const docType = pane.docType as CompareDocType;
-        // Drop any previously-loaded statuses for this doc_type before
-        // merging in the fresh set, same "replace this slice" pattern used
-        // by loadCommentsFor() for the comments array.
+        // Drop any previously-loaded statuses for this doc_type+version
+        // before merging in the fresh set, same "replace this slice"
+        // pattern used by loadCommentsFor() for the comments array.
         const kept: Record<string, ItemStatus> = {};
-        for (const key of Object.keys(this.itemStatuses)) {
-          if (!key.startsWith(`${docType}::`)) kept[key] = this.itemStatuses[key];
+        for (const existingKey of Object.keys(this.itemStatuses)) {
+          if (!existingKey.startsWith(`${key}::`)) kept[existingKey] = this.itemStatuses[existingKey];
         }
         for (const status of (r?.data || []) as ItemStatus[]) {
-          kept[this.itemStatusKey(status.doc_type, status.page_key)] = status;
+          kept[this.itemStatusKey(status.doc_type as any, status.page_key)] = status;
         }
         this.itemStatuses = kept;
       },
@@ -1767,7 +1874,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const pane = this.paneOf(side);
     const pageKey = pane.items[index]?.pageKey;
     if (!pane.docType || !pageKey) return undefined;
-    return this.itemStatuses[this.itemStatusKey(pane.docType, pageKey)];
+    return this.itemStatuses[this.itemStatusKey(this.paneDocTypeKey(pane), pageKey)];
   }
 
   isFinal(side: 'left' | 'right', index: number): boolean {
@@ -1779,7 +1886,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const pane = this.paneOf(side);
     const pageKey = pane.items[index]?.pageKey;
     if (!pane.docType || !pageKey || !this.topicId) return;
-    const docType = pane.docType;
+    const docType = this.paneDocTypeKey(pane);
 
     this.api.post<any>(`/topics/${this.topicId}/item-status/toggle`, {
       doc_type: docType,
@@ -2003,7 +2110,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private filenameFor(side: 'left' | 'right', suffix: string): string {
     const pane = this.paneOf(side);
-    const docLabel = pane.docType ? this.DOC_LABEL[pane.docType] : 'document';
+    const baseLabel = pane.docType ? this.DOC_LABEL[pane.docType] : 'document';
+    const docLabel = pane.version ? `${baseLabel}_${pane.version}` : baseLabel;
     const topicName = (this.topic?.topic_code || this.topic?.name || 'topic').toString().replace(/[^\w\-]+/g, '_');
     return `${topicName}_${docLabel.replace(/\s+/g, '_')}_${suffix}.pdf`;
   }
@@ -2080,7 +2188,9 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const resolvedCount = all.filter(c => c.resolved).length;
     const topicName = this.topic?.name || '';
     const topicCode = this.topic?.topic_code || '';
-    const docLabel = pane.docType ? this.DOC_LABEL[pane.docType] : '';
+    const docLabel = pane.docType
+      ? (pane.version ? `${this.DOC_LABEL[pane.docType]} (${this.versionLabel(pane.version)})` : this.DOC_LABEL[pane.docType])
+      : '';
 
     /** Draws the header band (called on page 1, and as a slim repeat on later pages). Light brand-blue wash with a solid-blue accent strip, logo mark, and — on page 1 only — the topic title, topic code, doc label, and a comment-count summary chip. */
     const drawHeader = (isFirstPage: boolean): number => {

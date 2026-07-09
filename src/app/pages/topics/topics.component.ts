@@ -54,6 +54,35 @@ const SLIDE_DOC_DEFS: Record<SlideDocType, SlideDocDef> = {
   // claude_pdf: { type: 'claude_pdf', label: 'Claude PDF',  suffix: '_GPT_Clau_PDF', exts: ['pdf'],         field: 'slide_claude_pdf' },
 };
 
+/** Version slots, in addition to the "original" upload. Keep in sync with
+ *  the backend's slideDocVersions(). null = original slot. */
+type SlideVersion = 'v1' | 'v2' | 'v3' | 'v4' | 'v5';
+const SLIDE_DOC_VERSIONS: SlideVersion[] = ['v1', 'v2', 'v3', 'v4', 'v5'];
+
+/** One selectable slot for a given doc type: the original, or one of its versions. */
+interface SlideDocSlot {
+  version: SlideVersion | null; // null = original
+  label: string;                // 'Original' | 'Version 1' | ...
+  field: string;                // topic property holding the filename, e.g. slide_claude_ppt_v1
+  suffix: string;                // filename suffix required for this slot, e.g. _GPT_Clau_PPT_V1
+}
+
+/** Builds the ordered list of slots (Original, v1..v5) for a doc type def. */
+function slideDocSlots(def: SlideDocDef): SlideDocSlot[] {
+  const slots: SlideDocSlot[] = [
+    { version: null, label: 'Original', field: def.field, suffix: def.suffix }
+  ];
+  for (const v of SLIDE_DOC_VERSIONS) {
+    slots.push({
+      version: v,
+      label: `Version ${v.substring(1)}`,
+      field: `${def.field}_${v}`,          // slide_claude_ppt_v1
+      suffix: `${def.suffix}_${v.toUpperCase()}` // _GPT_Clau_PPT_V1
+    });
+  }
+  return slots;
+}
+
 /** One shape / drawing stroke / sticky note on the annotation layer. Coordinates
  *  are stored in "natural image pixel" space (0,0 = top-left of the original
  *  image at 100% zoom) so the layer stays correctly positioned at any zoom level. */
@@ -115,7 +144,9 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
   slideDocModal: {
     topic: any;
     def: SlideDocDef;
-    stage: 'view' | 'upload';       // 'view' if a file already exists, 'upload' otherwise
+    slots: SlideDocSlot[];          // Original + v1..v5, in order
+    activeSlot: SlideDocSlot;       // which slot is currently shown/acted on
+    stage: 'picker' | 'view' | 'upload'; // 'picker' lists all slots; 'view'/'upload' act on activeSlot
     pickedFile: File | null;
     pickedName: string;             // basename (no ext) of the picked file, for the mismatch check
     pickedExt: string;
@@ -922,19 +953,36 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ============================================================
   // SLIDE-TILE DOCUMENTS (Claude PPT / ChatGPT PPT / Claude PDF)
-  // Saves to server folder /topic_attachments, filename must be
-  // exactly {topic_code}{suffix}.{ext} — enforced client + server side.
+  // Each doc type has 6 slots: Original + Version 1-5. Saves to server
+  // folder /topic_attachments, filename must be exactly
+  // {topic_code}{suffix}.{ext} (suffix gets _V1.._V5 appended for
+  // version slots) — enforced client + server side.
   // ============================================================
 
-  /** True if this topic already has a file saved for the given doc type. */
+  /** True if this topic already has a file saved for the given slot. */
+  slideSlotAttached(t: any, slot: SlideDocSlot): boolean {
+    return !!(t && t[slot.field]);
+  }
+
+  slideSlotFilename(t: any, slot: SlideDocSlot): string {
+    return t ? (t[slot.field] || '') : '';
+  }
+
+  /** True if this topic has ANY file (original or any version) for the doc type — drives the Slide tile's summary chip. */
   slideDocAttached(t: any, docType: SlideDocType): boolean {
     const def = SLIDE_DOC_DEFS[docType];
-    return !!(t && t[def.field]);
+    return slideDocSlots(def).some(slot => this.slideSlotAttached(t, slot));
   }
 
   slideDocFilename(t: any, docType: SlideDocType): string {
     const def = SLIDE_DOC_DEFS[docType];
     return t ? (t[def.field] || '') : '';
+  }
+
+  /** How many slots (out of 6) are filled for this doc type — e.g. "2/6". */
+  slideDocFilledCount(t: any, docType: SlideDocType): number {
+    const def = SLIDE_DOC_DEFS[docType];
+    return slideDocSlots(def).filter(slot => this.slideSlotAttached(t, slot)).length;
   }
 
   slideDocUrl(filename: string): string {
@@ -947,20 +995,21 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.sanitizer.bypassSecurityTrustResourceUrl(this.slideDocUrl(filename));
   }
 
-  /** Expected filename base (no extension) for a given topic + doc type. */
-  expectedSlideDocBase(t: any, docType: SlideDocType): string {
-    const def = SLIDE_DOC_DEFS[docType];
-    return `${t.topic_code}${def.suffix}`;
+  /** Expected filename base (no extension) for a given topic + slot. */
+  expectedSlotBase(t: any, slot: SlideDocSlot): string {
+    return `${t.topic_code}${slot.suffix}`;
   }
 
-  /** Opens the popup for a Slide-tile doc button. */
+  /** Opens the popup for a Slide-tile doc button — lands on the slot picker (Original/v1..v5). */
   openSlideDocModal(t: any, docType: SlideDocType) {
     const def = SLIDE_DOC_DEFS[docType];
-    const hasFile = this.slideDocAttached(t, docType);
+    const slots = slideDocSlots(def);
     this.slideDocModal = {
       topic: t,
       def,
-      stage: hasFile ? 'view' : 'upload',
+      slots,
+      activeSlot: slots[0],
+      stage: 'picker',
       pickedFile: null,
       pickedName: '',
       pickedExt: '',
@@ -975,7 +1024,27 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.slideDocModal = null;
   }
 
-  /** Switches an already-attached doc's modal into "replace" (upload) mode. */
+  /** From the picker, choose a slot: goes to 'view' if it already has a file, else straight to 'upload'. */
+  slideDocChooseSlot(slot: SlideDocSlot) {
+    if (!this.slideDocModal) return;
+    const m = this.slideDocModal;
+    m.activeSlot = slot;
+    m.pickedFile = null;
+    m.pickedName = '';
+    m.pickedExt = '';
+    m.nameMatches = false;
+    m.sizeError = '';
+    m.stage = this.slideSlotAttached(m.topic, slot) ? 'view' : 'upload';
+  }
+
+  /** Back out of view/upload to the slot picker list. */
+  slideDocBackToPicker() {
+    if (!this.slideDocModal) return;
+    this.slideDocModal.stage = 'picker';
+    this.slideDocModal.pickedFile = null;
+  }
+
+  /** Switches the active slot's modal into "replace" (upload) mode. */
   slideDocSwitchToUpload() {
     if (!this.slideDocModal) return;
     this.slideDocModal.stage = 'upload';
@@ -1007,17 +1076,18 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     const base = dot !== -1 ? file.name.substring(0, dot) : file.name;
     const ext = dot !== -1 ? file.name.substring(dot + 1).toLowerCase() : '';
 
-    const expectedBase = this.expectedSlideDocBase(this.slideDocModal.topic, this.slideDocModal.def.type);
-    const extOk = this.slideDocModal.def.exts.includes(ext);
+    const m = this.slideDocModal;
+    const expectedBase = this.expectedSlotBase(m.topic, m.activeSlot);
+    const extOk = m.def.exts.includes(ext);
 
     const maxBytes = this.MAX_SLIDE_DOC_MB * 1024 * 1024;
     const fileSizeMb = (file.size / (1024 * 1024)).toFixed(1);
 
-    this.slideDocModal.pickedFile = file;
-    this.slideDocModal.pickedName = base;
-    this.slideDocModal.pickedExt = ext;
-    this.slideDocModal.nameMatches = (base.toLowerCase() === expectedBase.toLowerCase()) && extOk;
-    this.slideDocModal.sizeError = file.size > maxBytes
+    m.pickedFile = file;
+    m.pickedName = base;
+    m.pickedExt = ext;
+    m.nameMatches = (base.toLowerCase() === expectedBase.toLowerCase()) && extOk;
+    m.sizeError = file.size > maxBytes
       ? `This file is ${fileSizeMb} MB. Max allowed size is ${this.MAX_SLIDE_DOC_MB} MB — please choose a smaller file.`
       : '';
   }
@@ -1027,7 +1097,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.slideDocModal || !this.slideDocModal.pickedFile) return;
     const m = this.slideDocModal;
     const originalFile = m.pickedFile!; // narrowed to File here, unlike m.pickedFile below
-    const expectedBase = this.expectedSlideDocBase(m.topic, m.def.type);
+    const expectedBase = this.expectedSlotBase(m.topic, m.activeSlot);
 
     // Keep the original extension if it's one of the allowed ones, otherwise
     // default to the first allowed extension for this doc type.
@@ -1051,7 +1121,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.slideDocModal.sizeError = '';
   }
 
-  /** Confirms upload — only enabled once nameMatches is true and file is within the size limit. */
+  /** Confirms upload — only enabled once nameMatches is true and file is within the size limit. Uploads into the active slot (original or vN). */
   confirmSlideDocUpload() {
     const m = this.slideDocModal;
     if (!m || !m.pickedFile || !m.nameMatches || m.uploading) return;
@@ -1061,20 +1131,23 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     const fileToUpload = m.pickedFile; // narrowed to File, avoids TS2322 below
+    const slot = m.activeSlot;
 
     m.uploading = true;
     const formData = new FormData();
     formData.append('file', fileToUpload, fileToUpload.name);
     formData.append('topic_id', String(m.topic.id));
     formData.append('doc_type', m.def.type);
+    if (slot.version) formData.append('version', slot.version); // omit for original
 
     this.api.post<any>('/topics/upload-slide-doc', formData).subscribe({
       next: (r: any) => {
         if (m) m.uploading = false;
         if (r?.status) {
-          m.topic[m.def.field] = r.filename;
-          this.toast.success(`${m.def.label} attached`);
-          this.closeSlideDocModal();
+          m.topic[slot.field] = r.filename;
+          this.toast.success(`${m.def.label} (${slot.label}) attached`);
+          m.stage = 'view';
+          m.pickedFile = null;
         } else {
           this.toast.error(this.slideDocUploadErrorMessage(r?.message, fileToUpload, 0));
         }
@@ -1099,19 +1172,24 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     return serverMessage || 'Upload failed';
   }
 
+  /** Deletes whichever slot is currently active (original or a specific version). */
   deleteSlideDoc() {
     const m = this.slideDocModal;
     if (!m || m.deleting) return;
-    if (!confirm(`Remove ${m.def.label} from this topic? This deletes the file from the server.`)) return;
+    const slot = m.activeSlot;
+    if (!confirm(`Remove ${m.def.label} (${slot.label}) from this topic? This deletes the file from the server.`)) return;
 
     m.deleting = true;
-    this.api.post<any>(`/topics/${m.topic.id}/delete-slide-doc`, { doc_type: m.def.type }).subscribe({
+    const body: any = { doc_type: m.def.type };
+    if (slot.version) body.version = slot.version;
+
+    this.api.post<any>(`/topics/${m.topic.id}/delete-slide-doc`, body).subscribe({
       next: (r: any) => {
         if (m) m.deleting = false;
         if (r?.status) {
-          m.topic[m.def.field] = null;
-          this.toast.success(`${m.def.label} removed`);
-          this.closeSlideDocModal();
+          m.topic[slot.field] = null;
+          this.toast.success(`${m.def.label} (${slot.label}) removed`);
+          m.stage = 'picker';
         } else {
           this.toast.error(r?.message || 'Delete failed');
         }
@@ -1123,8 +1201,15 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
+  /** Downloads the topic's ORIGINAL slot for a doc type (used by the compact Slide-tile buttons). */
   downloadSlideDoc(t: any, docType: SlideDocType) {
     const filename = this.slideDocFilename(t, docType);
+    if (!filename) return;
+    this.downloadSlideFilename(filename);
+  }
+
+  /** Downloads any slot's filename directly (used from the version picker). */
+  downloadSlideFilename(filename: string) {
     if (!filename) return;
     const url = this.slideDocUrl(filename);
     const a = document.createElement('a');
@@ -1283,6 +1368,84 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
         this.deleteConfirm = null;
       },
       error: () => { this.toast.error('Delete failed'); this.deleteConfirm = null; }
+    });
+  }
+
+  // ============================================================
+  // BULK SELECT / BULK DELETE
+  // ============================================================
+
+  /** Set of currently-selected topic ids (drives the checkbox + drawer UI). */
+  selectedTopicIds = new Set<number>();
+  bulkDeleteConfirmOpen = false;
+  bulkDeleting = false;
+
+  isTopicSelected(t: any): boolean {
+    return this.selectedTopicIds.has(t.id);
+  }
+
+  toggleTopicSelection(t: any, event?: Event) {
+    if (event) event.stopPropagation();
+    if (this.selectedTopicIds.has(t.id)) {
+      this.selectedTopicIds.delete(t.id);
+    } else {
+      this.selectedTopicIds.add(t.id);
+    }
+    // Reassign so change detection on the Set reference-holders (drawer count) picks it up.
+    this.selectedTopicIds = new Set(this.selectedTopicIds);
+  }
+
+  get selectedCount(): number {
+    return this.selectedTopicIds.size;
+  }
+
+  clearSelection() {
+    this.selectedTopicIds = new Set();
+  }
+
+  /** Names of the currently selected topics, for the confirm-modal list (capped for display). */
+  get selectedTopicNames(): string[] {
+    const names: string[] = [];
+    for (const t of this.topics) {
+      if (this.selectedTopicIds.has(t.id)) {
+        names.push(t.name || t.topic_code || `Topic ${t.sequence}`);
+      }
+    }
+    return names;
+  }
+
+  openBulkDeleteConfirm() {
+    if (!this.selectedCount) return;
+    this.bulkDeleteConfirmOpen = true;
+  }
+
+  closeBulkDeleteConfirm() {
+    if (this.bulkDeleting) return;
+    this.bulkDeleteConfirmOpen = false;
+  }
+
+  doBulkDelete() {
+    if (!this.selectedCount || this.bulkDeleting) return;
+    const ids = Array.from(this.selectedTopicIds);
+    this.bulkDeleting = true;
+    this.api.post<any>(`/topics/bulk-delete`, { ids }).subscribe({
+      next: (r: any) => {
+        this.bulkDeleting = false;
+        this.bulkDeleteConfirmOpen = false;
+        if (r?.status) {
+          const deletedIds: number[] = Array.isArray(r?.deleted_ids) ? r.deleted_ids.map(Number) : ids;
+          this.toast.success(r?.message || `${deletedIds.length} topic(s) deleted`);
+          this.clearSelection();
+          this.load();
+        } else {
+          this.toast.error(r?.message || 'Bulk delete failed');
+        }
+      },
+      error: () => {
+        this.bulkDeleting = false;
+        this.bulkDeleteConfirmOpen = false;
+        this.toast.error('Bulk delete failed');
+      }
     });
   }
 

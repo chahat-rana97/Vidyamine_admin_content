@@ -80,9 +80,18 @@
               *ngFor="let dt of availableDocTypes"
               class="cv-picker-opt"
               [class.selected]="pickerLeft === dt"
-              [disabled]="pickerRight === dt"
               (click)="choosePickerSide('left', dt)"
             >{{ DOC_LABEL[dt] }}</button>
+
+            <ng-container *ngIf="pickerLeft && availableVersionsFor(pickerLeft).length > 1">
+              <div class="cv-picker-sublabel">Version</div>
+              <button
+                *ngFor="let v of availableVersionsFor(pickerLeft)"
+                class="cv-picker-subopt"
+                [class.selected]="pickerLeftVersion === v"
+                (click)="choosePickerVersion('left', v)"
+              >{{ versionLabel(v) }}</button>
+            </ng-container>
           </div>
 
           <div class="cv-picker-vs">vs</div>
@@ -93,10 +102,23 @@
               *ngFor="let dt of availableDocTypes"
               class="cv-picker-opt"
               [class.selected]="pickerRight === dt"
-              [disabled]="pickerLeft === dt"
               (click)="choosePickerSide('right', dt)"
             >{{ DOC_LABEL[dt] }}</button>
+
+            <ng-container *ngIf="pickerRight && availableVersionsFor(pickerRight).length > 1">
+              <div class="cv-picker-sublabel">Version</div>
+              <button
+                *ngFor="let v of availableVersionsFor(pickerRight)"
+                class="cv-picker-subopt"
+                [class.selected]="pickerRightVersion === v"
+                (click)="choosePickerVersion('right', v)"
+              >{{ versionLabel(v) }}</button>
+            </ng-container>
           </div>
+        </div>
+
+        <div class="cv-picker-samewarn" *ngIf="pickerLeft && pickerRight && pickerLeft === pickerRight && pickerLeftVersion === pickerRightVersion">
+          Pick two different versions to compare the same document against itself.
         </div>
 
         <div class="cv-picker-footer">
@@ -378,6 +400,7 @@
     <div class="cv-pane" [class.cv-pane-fullscreen]="fullscreenSide === 'left'" [class.cv-pane-hidden]="!leftPaneOpen" [style.width.%]="leftEffectiveWidth">
       <div class="cv-pane-head">
         <span class="cv-pane-title">{{ DOC_LABEL[left.docType] }}</span>
+        <span class="cv-pane-versionbadge" *ngIf="left.version">{{ versionLabel(left.version) }}</span>
         <span class="cv-pane-pageinfo" *ngIf="left.items.length">
           {{ left.activeIndex + 1 }} / {{ left.items.length }}
         </span>
@@ -470,6 +493,7 @@
     <div class="cv-pane" [class.cv-pane-fullscreen]="fullscreenSide === 'right'" [class.cv-pane-hidden]="!rightPaneOpen" [style.width.%]="rightEffectiveWidth">
       <div class="cv-pane-head">
         <span class="cv-pane-title">{{ DOC_LABEL[right.docType] }}</span>
+        <span class="cv-pane-versionbadge" *ngIf="right.version">{{ versionLabel(right.version) }}</span>
         <span class="cv-pane-pageinfo" *ngIf="right.items.length">
           {{ right.activeIndex + 1 }} / {{ right.items.length }}
         </span>

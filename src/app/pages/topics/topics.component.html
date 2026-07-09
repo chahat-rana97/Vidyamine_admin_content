@@ -118,7 +118,13 @@
   <!-- Topic rows -->
   <div class="topic-list" *ngIf="!loading; else loadingTpl">
 
-    <div class="topic-row" *ngFor="let t of filteredTopics; let i = index">
+    <div class="topic-row" [class.topic-row--selected]="isTopicSelected(t)" *ngFor="let t of filteredTopics; let i = index">
+
+      <!-- ── Bulk-select checkbox (corner) ── -->
+      <label class="topic-select-check" *ngIf="canDelete" [title]="isTopicSelected(t) ? 'Deselect topic' : 'Select topic'" (click)="$event.stopPropagation()">
+        <input type="checkbox" [checked]="isTopicSelected(t)" (change)="toggleTopicSelection(t, $event)" />
+        <span class="topic-select-box"></span>
+      </label>
 
       <!-- ── Left: screenshots panel ── -->
       <div class="shotcell">
@@ -294,6 +300,7 @@
                 >
                   <span class="sd-dot"></span>
                   {{ SLIDE_DOC_DEFS[docType].label }}
+                  <span class="sd-slot-count">{{ slideDocFilledCount(t, docType) }}/6</span>
                 </button>
                 <button
                   class="slidedoc-btn compare-btn"
@@ -357,6 +364,22 @@
     </div>
   </ng-template>
 
+</div>
+
+<!-- ============================================================ -->
+<!-- BULK-SELECT DRAWER — slides up when one or more topics are selected -->
+<!-- ============================================================ -->
+<div class="bulk-select-drawer" *ngIf="selectedCount">
+  <div class="bulk-select-drawer-inner">
+    <div class="bulk-select-info">
+      <span class="bulk-select-count">{{ selectedCount }}</span>
+      <span class="bulk-select-label">topic{{ selectedCount > 1 ? 's' : '' }} selected</span>
+    </div>
+    <div class="bulk-select-actions">
+      <button class="btn-ghost" (click)="clearSelection()">Clear</button>
+      <button class="btn-danger bulk-delete-btn" (click)="openBulkDeleteConfirm()">🗑 Delete selected</button>
+    </div>
+  </div>
 </div>
 
 <!-- ============================================================ -->
@@ -474,6 +497,32 @@
     <div class="modal-actions">
       <button class="btn-ghost" (click)="deleteConfirm = null">Cancel</button>
       <button class="btn-danger" (click)="doDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BULK DELETE CONFIRM MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay" *ngIf="bulkDeleteConfirmOpen" (click)="closeBulkDeleteConfirm()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-icon">⚠</div>
+    <div class="modal-title">Delete {{ selectedCount }} topic{{ selectedCount > 1 ? 's' : '' }}?</div>
+    <div class="modal-desc">
+      <strong>{{ selectedCount }}</strong> topic{{ selectedCount > 1 ? 's' : '' }} will be permanently deleted.
+      This action cannot be undone.
+    </div>
+    <ul class="bulk-delete-namelist" *ngIf="selectedTopicNames.length">
+      <li *ngFor="let n of (selectedTopicNames | slice:0:6)">{{ n }}</li>
+      <li *ngIf="selectedTopicNames.length > 6" class="bulk-delete-namelist-more">
+        + {{ selectedTopicNames.length - 6 }} more
+      </li>
+    </ul>
+    <div class="modal-actions">
+      <button class="btn-ghost" [disabled]="bulkDeleting" (click)="closeBulkDeleteConfirm()">Cancel</button>
+      <button class="btn-danger" [disabled]="bulkDeleting" (click)="doBulkDelete()">
+        {{ bulkDeleting ? 'Deleting…' : 'Delete all' }}
+      </button>
     </div>
   </div>
 </div>
@@ -732,11 +781,33 @@
 
     <div class="slidedoc-header">
       <span class="slidedoc-title">{{ m.def.label }}</span>
+      <span class="slidedoc-slotlabel" *ngIf="m.stage !== 'picker'">— {{ m.activeSlot.label }}</span>
       <code class="slidedoc-topiccode" [title]="m.topic.topic_code">{{ m.topic.topic_code }}</code>
       <button class="slidedoc-close" (click)="closeSlideDocModal()" title="Close">✕</button>
     </div>
 
-    <!-- ── VIEW STAGE: file already attached ── -->
+    <!-- ── PICKER STAGE: choose Original / v1..v5 ── -->
+    <ng-container *ngIf="m.stage === 'picker'">
+      <div class="slidedoc-slotlist">
+        <button
+          *ngFor="let slot of m.slots"
+          class="slidedoc-slotrow"
+          [class.attached]="slideSlotAttached(m.topic, slot)"
+          (click)="slideDocChooseSlot(slot)"
+        >
+          <span class="sd-dot"></span>
+          <span class="slidedoc-slotrow-label">{{ slot.label }}</span>
+          <span class="slidedoc-slotrow-status" *ngIf="slideSlotAttached(m.topic, slot)">
+            ✓ Attached — {{ slideSlotFilename(m.topic, slot) }}
+          </span>
+          <span class="slidedoc-slotrow-status empty" *ngIf="!slideSlotAttached(m.topic, slot)">
+            Not uploaded — tap to add
+          </span>
+        </button>
+      </div>
+    </ng-container>
+
+    <!-- ── VIEW STAGE: file already attached for the active slot ── -->
     <ng-container *ngIf="m.stage === 'view'">
       <div class="slidedoc-viewbody">
 
@@ -744,7 +815,7 @@
         <ng-container *ngIf="m.def.type === 'claude_pdf'; else pptFileCard">
           <iframe
             class="slidedoc-pdf-frame"
-            [src]="slideDocSafeUrl(slideDocFilename(m.topic, m.def.type))"
+            [src]="slideDocSafeUrl(slideSlotFilename(m.topic, m.activeSlot))"
             title="Slide PDF preview"
           ></iframe>
         </ng-container>
@@ -753,32 +824,36 @@
         <ng-template #pptFileCard>
           <div class="slidedoc-filecard">
             <span class="slidedoc-fileicon">📊</span>
-            <div class="slidedoc-filename">{{ slideDocFilename(m.topic, m.def.type) }}</div>
+            <div class="slidedoc-filename">{{ slideSlotFilename(m.topic, m.activeSlot) }}</div>
             <div class="slidedoc-filehint">PowerPoint files can't be previewed in-browser — download to view.</div>
           </div>
         </ng-template>
 
         <div class="slidedoc-filename-bar" *ngIf="m.def.type === 'claude_pdf'">
-          {{ slideDocFilename(m.topic, m.def.type) }}
+          {{ slideSlotFilename(m.topic, m.activeSlot) }}
         </div>
       </div>
 
       <div class="slidedoc-actions-row">
-        <button class="sd-action sd-download" (click)="downloadSlideDoc(m.topic, m.def.type)">⬇ Download</button>
+        <button class="sd-action sd-download" (click)="downloadSlideFilename(slideSlotFilename(m.topic, m.activeSlot))">⬇ Download</button>
         <button class="sd-action sd-replace" *ngIf="canWrite" (click)="slideDocSwitchToUpload()">🔄 Replace</button>
         <button class="sd-action sd-delete" *ngIf="canDelete" [disabled]="m.deleting" (click)="deleteSlideDoc()">
           {{ m.deleting ? 'Removing…' : '🗑 Delete' }}
         </button>
       </div>
+
+      <div class="slidedoc-back-row">
+        <button class="sd-action sd-cancel" (click)="slideDocBackToPicker()">← All versions</button>
+      </div>
     </ng-container>
 
-    <!-- ── UPLOAD STAGE: no file yet, or replacing ── -->
+    <!-- ── UPLOAD STAGE: active slot has no file yet, or is being replaced ── -->
     <ng-container *ngIf="m.stage === 'upload'">
       <div class="slidedoc-uploadbody">
 
         <div class="slidedoc-expected">
           <label>Required filename</label>
-          <code>{{ expectedSlideDocBase(m.topic, m.def.type) }}.[{{ m.def.exts.join('|') }}]</code>
+          <code>{{ expectedSlotBase(m.topic, m.activeSlot) }}.[{{ m.def.exts.join('|') }}]</code>
         </div>
 
         <input
@@ -807,7 +882,7 @@
 
           <div class="slidedoc-match-warn" *ngIf="!m.nameMatches">
             ⚠ Code mismatch. Expected name:
-            <code>{{ expectedSlideDocBase(m.topic, m.def.type) }}.[{{ m.def.exts.join('|') }}]</code>
+            <code>{{ expectedSlotBase(m.topic, m.activeSlot) }}.[{{ m.def.exts.join('|') }}]</code>
             <div class="slidedoc-warn-actions">
               <button class="sd-action sd-fixname" (click)="slideDocFixName()">✎ Rename & continue</button>
               <button class="sd-action sd-pickagain" (click)="triggerSlideDocPicker(slideDocFileInput)">Choose a different file</button>
@@ -829,8 +904,9 @@
           </div>
         </div>
 
-        <div class="slidedoc-back-row" *ngIf="slideDocAttached(m.topic, m.def.type)">
-          <button class="sd-action sd-cancel" (click)="slideDocBackToView()">← Back</button>
+        <div class="slidedoc-back-row">
+          <button class="sd-action sd-cancel" *ngIf="slideSlotAttached(m.topic, m.activeSlot)" (click)="slideDocBackToView()">← Back</button>
+          <button class="sd-action sd-cancel" *ngIf="!slideSlotAttached(m.topic, m.activeSlot)" (click)="slideDocBackToPicker()">← All versions</button>
         </div>
       </div>
     </ng-container>
