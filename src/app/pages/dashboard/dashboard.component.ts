@@ -361,7 +361,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
     for (const t of this.topics) {
       if (t.updated_by) {
-        items.push({ who: t.updated_by, action: t.created_at === t.updated_at ? 'created topic' : 'updated topic', what: t.name, when: t.updated_at, kind: 'topic' });
+        items.push({ who: t.updated_by, action: t.created_at === t.updated_at ? 'created topic' : 'updated topic', what: t.name || t.topic_code, when: t.updated_at, kind: 'topic' });
       }
     }
     for (const u of this.users) {
