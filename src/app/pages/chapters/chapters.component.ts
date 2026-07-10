@@ -181,6 +181,11 @@ export class ChaptersComponent implements OnInit {
 
   /** Superadmin or admin only — gates visibility of Created By / Updated By audit columns. */
   get canViewAudit() {
+    return ['superadmin', 'admin',].includes(this.auth.user?.role || '');
+  }
+
+  /** Superadmin or admin only — editor can add/edit but not delete. */
+  get canDelete() {
     return ['superadmin', 'admin'].includes(this.auth.user?.role || '');
   }
 
@@ -864,7 +869,13 @@ export class ChaptersComponent implements OnInit {
   // DELETE / TOGGLE
   // ============================================================
 
-  confirmDelete(c: any) { this.deleteConfirm = c; }
+  confirmDelete(c: any) {
+    if (!this.canDelete) {
+      this.toast.error('Access denied');
+      return;
+    }
+    this.deleteConfirm = c;
+  }
 
   doDelete() {
     if (!this.deleteConfirm) return;
@@ -907,4 +918,8 @@ export class ChaptersComponent implements OnInit {
   goToTopics(c: any) { this.router.navigate(['/topics'], { queryParams: { chapter_id: c.id } }); }
 
   isActive(c: any): boolean { return Number(c.is_active) === 1; }
+
+  // Opens the dedicated full-page Chapter Report screen (separate route,
+  // not a modal) for the given chapter.
+  goToReport(c: any) { this.router.navigate(['/reports/chapters', c.id]); }
 }

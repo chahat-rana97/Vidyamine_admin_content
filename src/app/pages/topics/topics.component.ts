@@ -214,10 +214,16 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.router.navigate(['/compare'], { queryParams: { topic_id: topic.id } });
   }
 
+  /** topic_id passed in from the Chapter Report screen, used to scroll to / highlight that topic once loaded. */
+  focusTopicId: number | null = null;
+
   ngOnInit() {
     const idParam = this.route.snapshot.queryParamMap.get('chapter_id')
       || this.route.snapshot.paramMap.get('chapter_id');
     this.chapterId = idParam ? Number(idParam) : null;
+
+    const topicIdParam = this.route.snapshot.queryParamMap.get('topic_id');
+    this.focusTopicId = topicIdParam ? Number(topicIdParam) : null;
 
     if (!this.chapterId) {
       this.toast.error('No chapter selected');
@@ -228,6 +234,25 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.loadChapter();
     this.load();
     this.loadAssignableUsers();
+  }
+
+  /** Navigates to the Chapter Report screen for the currently open chapter. */
+  goToReport() {
+    if (!this.chapterId) return;
+    this.router.navigate(['/reports/chapters', this.chapterId]);
+  }
+
+  /** Scrolls to and briefly highlights the topic row referenced by focusTopicId (arrived from the report screen). */
+  private scrollToFocusedTopic() {
+    if (!this.focusTopicId) return;
+    setTimeout(() => {
+      const el = document.getElementById('topic-row-' + this.focusTopicId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('topic-row--focused');
+        setTimeout(() => el.classList.remove('topic-row--focused'), 2500);
+      }
+    }, 300);
   }
 
   get canWrite() {
@@ -433,6 +458,7 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
         this.topics = list.map((t: any) => this.hydrateTopic(t));
         this.applyTopicFilter();
         this.loading = false;
+        this.scrollToFocusedTopic();
       },
       error: () => {
         this.topics = [];

@@ -23,10 +23,12 @@
           }
 
           @for (item of group.items; track item.route) {
-            <a [routerLink]="item.route"
-               routerLinkActive="active"
+            <a [routerLink]="(item.children?.length || isRestricted(item)) ? null : item.route"
+               [routerLinkActive]="item.children?.length ? '' : 'active'"
+               [class.active]="item.children?.length && hasActiveChild(item)"
                class="nav-item"
                [class.is-restricted]="isRestricted(item)"
+               [class.has-children]="item.children?.length"
                (click)="onNavItemClick(item, $event)">
               <span class="nav-icon" [ngClass]="item.icon"></span>
               @if (sidebarOpen) {
@@ -34,8 +36,28 @@
                 @if (item.roles?.length) {
                   <span class="nav-dot"></span>
                 }
+                @if (item.children?.length) {
+                  <span class="nav-chevron" [class.is-open]="isExpanded(item)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                  </span>
+                }
               }
             </a>
+
+            @if (item.children?.length && sidebarOpen && isExpanded(item)) {
+              <div class="nav-submenu">
+                @for (child of item.children; track child.route) {
+                  <a [routerLink]="isRestricted(child) ? null : child.route"
+                     routerLinkActive="active"
+                     class="nav-subitem"
+                     [class.is-restricted]="isRestricted(child)"
+                     (click)="onNavItemClick(child, $event)">
+                    <span class="nav-subitem-dot"></span>
+                    <span class="nav-label">{{ child.label }}</span>
+                  </a>
+                }
+              </div>
+            }
           }
         </div>
       }
@@ -126,7 +148,7 @@
         </svg>
       </div>
       <h3 class="modal-title">Access Denied</h3>
-      <p class="modal-desc">You don't have permission to access Admin Users with your current role. Contact an administrator if you need access.</p>
+      <p class="modal-desc">You don't have permission to access {{ accessDeniedLabel }} with your current role. Contact an administrator if you need access.</p>
       <div class="modal-actions">
         <button class="btn-confirm" (click)="closeAccessDenied()">Okay</button>
       </div>

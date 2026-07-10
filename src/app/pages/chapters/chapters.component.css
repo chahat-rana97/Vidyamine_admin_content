@@ -265,6 +265,13 @@
 .btn-danger:hover {
   background: rgba(239, 68, 68, 0.26);
 }
+.btn-danger.btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-danger.btn-disabled:hover {
+  background: rgba(239, 68, 68, 0.14);
+}
 .btn-sm {
   font-size: 13px;
   padding: 6px 12px;
@@ -1124,4 +1131,33 @@
     width: 100%;
     justify-content: flex-start;
   }
+}
+/* ============================================================ */
+/* REPORT ICON BUTTON (table cell)                               */
+/* ============================================================ */
+.col-report {
+  width: 70px;
+  text-align: center;
+}
+.report-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--c-border);
+  background: rgba(99, 102, 241, 0.1);
+  color: #a5b4fc;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.report-icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+.report-icon-btn:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.55);
+  transform: translateY(-1px);
 }

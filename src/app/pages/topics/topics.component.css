@@ -215,6 +215,17 @@
   box-shadow: 0 0 0 1px var(--c-primary);
 }
 
+/* Momentary highlight when arriving from the Chapter Report screen's "open topic" link */
+.topic-row--focused {
+  border-color: #f0a500;
+  box-shadow: 0 0 0 3px rgba(240, 165, 0, 0.35);
+  animation: topicRowFocusPulse 1.2s ease-in-out 1;
+}
+@keyframes topicRowFocusPulse {
+  0%   { box-shadow: 0 0 0 3px rgba(240, 165, 0, 0.6); }
+  100% { box-shadow: 0 0 0 3px rgba(240, 165, 0, 0.35); }
+}
+
 /* ── Bulk-select checkbox, pinned to the top-left corner of the tile ── */
 .topic-select-check {
   position: absolute;

@@ -117,7 +117,11 @@
 
       <!-- KPI Stat Cards -->
       <div class="stats-row">
-        <a class="stat-card" *ngFor="let s of stats" [routerLink]="s.route">
+        <a class="stat-card"
+           *ngFor="let s of stats"
+           [routerLink]="(s.route === '/admin-users' && isAdminUsersRestricted) ? null : s.route"
+           [class.is-restricted]="s.route === '/admin-users' && isAdminUsersRestricted"
+           (click)="s.route === '/admin-users' ? onRestrictedLinkClick(s.label, $event) : null">
           <span class="stat-accent stat-accent--{{ s.accent }}"></span>
           <div class="stat-top-row">
             <span class="stat-label">{{ s.label }}</span>
@@ -368,7 +372,10 @@
               </svg>
               <h4>Team by Role</h4>
             </div>
-            <a routerLink="/admin-users" class="panel-link">Manage
+            <a [routerLink]="isAdminUsersRestricted ? null : '/admin-users'"
+               class="panel-link"
+               [class.is-restricted]="isAdminUsersRestricted"
+               (click)="onRestrictedLinkClick('Team by Role', $event)">Manage
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
               </svg>
@@ -393,11 +400,16 @@
             </div>
           </div>
 
-          <div class="donut-legend">
+          <div class="donut-legend" *ngIf="!isAdminUsersRestricted">
             <div class="legend-row" *ngFor="let slice of roleDonut">
               <span class="legend-dot" [style.background]="slice.color"></span>
               <span class="legend-label">{{ slice.label }}</span>
               <span class="legend-value">{{ slice.value }} · {{ slice.pct }}%</span>
+            </div>
+          </div>
+          <div class="donut-legend" *ngIf="isAdminUsersRestricted">
+            <div class="legend-row restricted-note">
+              <span class="legend-label">You don't have access to this</span>
             </div>
           </div>
         </div>
@@ -652,7 +664,10 @@
             </svg>
             <h2>Recent Admin Users</h2>
           </div>
-          <a routerLink="/admin-users" class="btn btn-ghost btn-sm">
+          <a [routerLink]="isAdminUsersRestricted ? null : '/admin-users'"
+             class="btn btn-ghost btn-sm"
+             [class.is-restricted]="isAdminUsersRestricted"
+             (click)="onRestrictedLinkClick('Recent Admin Users', $event)">
             View all
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
@@ -727,5 +742,22 @@
       </div>
     </ng-template>
 
+  </div>
+</div>
+
+<!-- Access Denied Modal -->
+<div class="modal-backdrop" *ngIf="showAccessDenied" (click)="closeAccessDenied()">
+  <div class="modal-card" (click)="$event.stopPropagation()">
+    <div class="modal-icon modal-icon--danger">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px;">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>
+      </svg>
+    </div>
+    <h3 class="modal-title">Access Denied</h3>
+    <p class="modal-desc">You don't have permission to access {{ accessDeniedLabel }} with your current role. Contact an administrator if you need access.</p>
+    <div class="modal-actions">
+      <button class="btn-confirm" (click)="closeAccessDenied()">Okay</button>
+    </div>
   </div>
 </div>

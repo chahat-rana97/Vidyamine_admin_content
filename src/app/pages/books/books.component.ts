@@ -95,6 +95,10 @@ export class BooksComponent implements OnInit {
   }
 
   get canWrite() {
+    return ['superadmin', 'admin', 'editor'].includes(this.auth.user?.role || '');
+  }
+
+  get canDelete() {
     return ['superadmin', 'admin'].includes(this.auth.user?.role || '');
   }
 
@@ -581,6 +585,14 @@ export class BooksComponent implements OnInit {
     this.router.navigate([], { queryParams: {} });
   }
 
+  goToBookReport(b: any) {
+    if (this.auth.user?.role === 'editor') {
+      this.toast.error('Access denied');
+      return;
+    }
+    this.router.navigate(['/reports/content'], { queryParams: { book_id: b.id } });
+  }
+
   save() {
     const d = this.form;
     if (!d.board_id || !d.class_id || !d.publisher_id || !d.code?.trim() || !d.name?.trim()) {
@@ -648,6 +660,10 @@ export class BooksComponent implements OnInit {
   // ============================================================
 
   confirmDelete(b: any) {
+    if (!this.canDelete) {
+      this.toast.error('Access denied');
+      return;
+    }
     this.deleteConfirm = b;
   }
 

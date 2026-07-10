@@ -34,15 +34,16 @@
       </div>
     </ng-template>
 
-    <div class="strip-right" *ngIf="canWrite">
-      <button class="tbtn" (click)="triggerImportPicker(importPicker)">＋ Add new topic</button>
+    <div class="strip-right">
+      <button class="tbtn" *ngIf="canWrite" (click)="triggerImportPicker(importPicker)">＋ Add new topic</button>
       <button
         class="tbtn"
+        *ngIf="canWrite"
         [disabled]="fillingAllCaptions"
         (click)="fillAllEmptyCaptions()"
       >{{ fillingAllCaptions ? '⏳ Filling…' : '✨ Fill all empty captions' }}</button>
-      <button class="tbtn tbtn--run">⚡ Run all / Full pack</button>
-      <button class="tbtn tbtn--save">Save captions</button>
+      <button class="tbtn tbtn--run" (click)="goToReport()">📊 View Report</button>
+      <button class="tbtn tbtn--save" *ngIf="canWrite">Save captions</button>
     </div>
   </div>
 
@@ -118,7 +119,7 @@
   <!-- Topic rows -->
   <div class="topic-list" *ngIf="!loading; else loadingTpl">
 
-    <div class="topic-row" [class.topic-row--selected]="isTopicSelected(t)" *ngFor="let t of filteredTopics; let i = index">
+    <div class="topic-row" [id]="'topic-row-' + t.id" [class.topic-row--selected]="isTopicSelected(t)" *ngFor="let t of filteredTopics; let i = index">
 
       <!-- ── Bulk-select checkbox (corner) ── -->
       <label class="topic-select-check" *ngIf="canDelete" [title]="isTopicSelected(t) ? 'Deselect topic' : 'Select topic'" (click)="$event.stopPropagation()">

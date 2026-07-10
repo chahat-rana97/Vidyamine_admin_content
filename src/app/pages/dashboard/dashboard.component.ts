@@ -77,6 +77,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
   loadError = false;
   today = new Date();
 
+  // ---- restricted-access UI state (e.g. editor role blocked from Admin Users) ----
+  showAccessDenied = false;
+  accessDeniedLabel = '';
+
   // ---- raw datasets ----
   users: any[] = [];
   boards: any[] = [];
@@ -557,7 +561,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   get isAdminOrAbove(): boolean {
     const role = this.auth.user?.role;
-    return role === 'superadmin' || role === 'admin';
+    return role === 'superadmin';
+  }
+
+  /** true when the current role is blocked from opening Admin Users (e.g. editor) */
+  get isAdminUsersRestricted(): boolean {
+    return !this.isAdminOrAbove;
+  }
+
+  onRestrictedLinkClick(label: string, event: Event) {
+    if (this.isAdminUsersRestricted) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.accessDeniedLabel = label;
+      this.showAccessDenied = true;
+    }
+  }
+
+  closeAccessDenied() {
+    this.showAccessDenied = false;
   }
 
   ringDashArray(dashLength: number): string {

@@ -142,6 +142,7 @@
             <th>TYPE</th>
             <th>EDITION</th>
             <th>STATUS</th>
+            <th class="col-report">REPORT</th>
             <th *ngIf="canWrite" class="col-actions">ACTIONS</th>
           </tr>
         </thead>
@@ -188,13 +189,29 @@
                 {{ isActive(b) ? 'Active' : 'Inactive' }}
               </button>
             </td>
+            <td class="col-report">
+              <button
+                class="btn-report-icon"
+                (click)="goToBookReport(b)"
+                [class.btn-disabled]="auth.user?.role === 'editor'"
+                [title]="auth.user?.role === 'editor' ? 'Access denied' : 'View report for this book'"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 3v18h18"/>
+                  <rect x="7" y="12" width="3" height="6" rx="0.5"/>
+                  <rect x="12.5" y="8" width="3" height="10" rx="0.5"/>
+                  <rect x="18" y="5" width="3" height="13" rx="0.5"/>
+                </svg>
+              </button>
+            </td>
             <td *ngIf="canWrite">
               <div class="action-btns">
                 <button class="btn btn-edit btn-sm" (click)="goToEdit(b)">Edit</button>
                 <button
                   class="btn btn-danger btn-sm"
                   (click)="confirmDelete(b)"
-                  *ngIf="auth.user?.role === 'superadmin'"
+                  [class.btn-disabled]="!canDelete"
+                  [title]="canDelete ? 'Delete this book' : 'Access denied'"
                 >Delete</button>
               </div>
             </td>

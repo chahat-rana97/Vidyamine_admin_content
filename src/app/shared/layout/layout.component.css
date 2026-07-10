@@ -370,6 +370,37 @@
   box-shadow: 0 5px 0 currentColor, 0 10px 0 currentColor;
 }
 
+.icon-reports::before {
+  content: "";
+  display: block;
+  width: 13px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  position: relative;
+  top: 1px;
+}
+.icon-reports::after {
+  content: "";
+  display: block;
+  width: 3px;
+  background: currentColor;
+  position: absolute;
+  bottom: 3px;
+  left: 4px;
+  box-shadow: 5px -3px 0 0 currentColor, 10px -6px 0 0 currentColor;
+  height: 3px;
+}
+
+.icon-reports-sub::before {
+  content: "";
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
 .icon-logout::before {
   content: "";
   display: block;
@@ -410,6 +441,77 @@
   background: var(--nav-accent);
   opacity: 0.9;
   flex-shrink: 0;
+}
+
+.nav-item.has-children {
+  cursor: pointer;
+}
+
+.nav-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.18s ease;
+}
+.nav-chevron svg {
+  width: 100%;
+  height: 100%;
+}
+.nav-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 2px 14px;
+  padding-left: 12px;
+  border-left: 1px solid var(--nav-border);
+}
+
+.nav-subitem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--nav-text-secondary);
+  text-decoration: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-subitem:hover {
+  background: var(--nav-item-hover);
+  color: var(--nav-text);
+}
+.nav-subitem.active {
+  background: var(--nav-item-active-bg);
+  color: var(--nav-item-active-text);
+}
+.nav-subitem-dot {
+  width: 4px;
+  height: 4px;
+  min-width: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.nav-item.is-restricted,
+.nav-subitem.is-restricted {
+  cursor: not-allowed;
+}
+.nav-item.is-restricted:hover,
+.nav-subitem.is-restricted:hover {
+  background: var(--nav-item-hover);
+  opacity: 0.7;
 }
 
 /* ── Footer ── */

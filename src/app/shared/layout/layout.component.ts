@@ -1,5 +1,5 @@
-import { Component } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, OnInit } from '@angular/core';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { NgClass } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
@@ -12,6 +12,8 @@ interface NavItem {
   roles?: string[];
   /** roles listed here can SEE this item but get an Access Denied dialog on click */
   restrictedRoles?: string[];
+  /** optional sub-navigation items rendered as a collapsible group under this item */
+  children?: NavItem[];
 }
 
 interface NavGroup {
@@ -26,17 +28,18 @@ interface NavGroup {
   templateUrl: './layout.component.html',
   styleUrls: ['./layout.component.css']
 })
-export class LayoutComponent {
+export class LayoutComponent implements OnInit {
   sidebarOpen = true;
   showLogoutConfirm = false;
   showAccessDenied = false;
+  accessDeniedLabel = '';
 
   navGroups: NavGroup[] = [
     {
       groupLabel: 'Overview',
       items: [
         { label: 'Dashboard',   icon: 'icon-dashboard', route: '/dashboard' },
-        { label: 'Admin Users', icon: 'icon-users',     route: '/admin-users', roles: ['superadmin', 'admin', 'editor'], restrictedRoles: ['editor'] },
+        { label: 'Admin Users', icon: 'icon-users',     route: '/admin-users', roles: ['superadmin', 'admin', 'editor'], restrictedRoles: ['admin', 'editor'] },
       ]
     },
     {
@@ -55,11 +58,34 @@ export class LayoutComponent {
       items: [
         { label: 'Manage Books',    icon: 'icon-books',    route: '/books' },
         { label: 'Manage Chapters', icon: 'icon-chapters', route: '/chapters' },
+        {
+          label: 'Reports',
+          icon: 'icon-reports',
+          route: '/reports',
+          children: [
+            { label: 'Content Report', icon: 'icon-reports-sub', route: '/reports/content', restrictedRoles: ['editor'] },
+            { label: 'Assignment Report', icon: 'icon-reports-sub', route: '/reports/assignments', restrictedRoles: ['editor', 'admin'] },
+          ]
+        },
       ]
     }
   ];
 
-  constructor(public auth: AuthService, public themeSvc: ThemeService) {}
+  /** routes (by label) whose submenu is currently expanded */
+  expandedItems = new Set<string>();
+
+  constructor(public auth: AuthService, public themeSvc: ThemeService, private router: Router) {}
+
+  ngOnInit() {
+    // auto-expand any parent whose child route is currently active (e.g. deep link / refresh on /reports/content)
+    for (const group of this.navGroups) {
+      for (const item of group.items) {
+        if (this.hasActiveChild(item)) {
+          this.expandedItems.add(item.label);
+        }
+      }
+    }
+  }
 
   toggleTheme() { this.themeSvc.toggle(); }
 
@@ -68,7 +94,12 @@ export class LayoutComponent {
     return this.navGroups
       .map(group => ({
         ...group,
-        items: group.items.filter(n => !n.roles || !role || n.roles.includes(role))
+        items: group.items
+          .filter(n => !n.roles || !role || n.roles.includes(role))
+          .map(n => n.children
+            ? { ...n, children: n.children.filter(c => !c.roles || !role || c.roles.includes(role)) }
+            : n
+          )
       }))
       .filter(group => group.items.length > 0);
   }
@@ -96,8 +127,34 @@ export class LayoutComponent {
   onNavItemClick(item: NavItem, event: Event) {
     if (this.isRestricted(item)) {
       event.preventDefault();
+      event.stopPropagation();
+      this.accessDeniedLabel = item.label;
       this.showAccessDenied = true;
+      return;
     }
+    if (item.children?.length) {
+      // parent items with children act as expand/collapse toggles, not direct links
+      event.preventDefault();
+      this.toggleExpanded(item);
+    }
+  }
+
+  toggleExpanded(item: NavItem) {
+    if (this.expandedItems.has(item.label)) {
+      this.expandedItems.delete(item.label);
+    } else {
+      this.expandedItems.add(item.label);
+    }
+  }
+
+  isExpanded(item: NavItem): boolean {
+    return this.expandedItems.has(item.label);
+  }
+
+  hasActiveChild(item: NavItem): boolean {
+    if (!item.children?.length) return false;
+    const url = this.router.url;
+    return item.children.some(c => url.startsWith(c.route));
   }
 
   closeAccessDenied() { this.showAccessDenied = false; }

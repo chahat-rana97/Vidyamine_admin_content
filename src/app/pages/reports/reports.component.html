@@ -1,0 +1,501 @@
+<div class="page-wrap">
+
+  <!-- ============================================================ -->
+  <!-- BREADCRUMB / HEADER -->
+  <!-- ============================================================ -->
+  <div class="report-header">
+    <div class="report-crumbs">
+      <span class="crumb" [class.crumb--active]="view==='overview'" (click)="backToOverview()">Content Report</span>
+      @if (view === 'book' || view === 'chapter') {
+        <span class="crumb-sep">/</span>
+        <span class="crumb" [class.crumb--active]="view==='book'" (click)="view==='chapter' ? backToBook() : null">
+          {{ bookDetail?.book?.name || 'Book' }}
+        </span>
+      }
+      @if (view === 'chapter') {
+        <span class="crumb-sep">/</span>
+        <span class="crumb crumb--active">{{ chapterDetail?.chapter?.name || 'Chapter' }}</span>
+      }
+    </div>
+    <p class="report-subtitle">
+      @if (view === 'overview') { Platform-wide analytics across books, chapters, topics and content assets }
+      @if (view === 'book') { Chapter-by-chapter breakdown for this book }
+      @if (view === 'chapter') { Topic-level detail for this chapter }
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- OVERVIEW -->
+  <!-- ============================================================ -->
+  @if (view === 'overview') {
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <div class="filter-field">
+        <label>BOARD</label>
+        <select class="filter-select" [(ngModel)]="filterBoardId" (ngModelChange)="onFilterBoardChange()">
+          <option value="">All Boards</option>
+          @for (b of boards; track b.id) { <option [value]="b.id">{{ b.name }}</option> }
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>CLASS</label>
+        <select class="filter-select" [(ngModel)]="filterClassId" (ngModelChange)="onFilterClassChange()" [disabled]="!filterBoardId">
+          <option value="">All Classes</option>
+          @for (c of filterClassOptions; track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>SUBJECT</label>
+        <select class="filter-select" [(ngModel)]="filterSubjectId" (ngModelChange)="onFilterSubjectChange()" [disabled]="!filterClassId">
+          <option value="">All Subjects</option>
+          @for (s of filterSubjectOptions; track s.id) { <option [value]="s.id">{{ s.name }}</option> }
+        </select>
+      </div>
+      @if (hasActiveFilters) {
+        <button class="btn-clear-filters" (click)="clearFilters()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          Clear filters
+        </button>
+      }
+
+      <div class="book-picker">
+        <svg class="picker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" placeholder="Jump to a book's report..." [(ngModel)]="bookPickerSearch" class="picker-input" />
+        @if (bookPickerSearch) {
+          <div class="picker-dropdown">
+            @for (b of filteredBookPicker; track b.id) {
+              <div class="picker-item" (click)="openBookReport(b.id); bookPickerSearch=''">
+                <span class="picker-item-name">{{ b.name }}</span>
+                <span class="picker-item-code">{{ b.code }}</span>
+              </div>
+            } @empty {
+              <div class="picker-empty">No books match "{{ bookPickerSearch }}"</div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+
+    @if (loading) {
+      <div class="loading-card">
+        <div class="spinner"></div>
+        <span>Crunching the numbers...</span>
+      </div>
+    } @else if (overview) {
+
+      <!-- ── Top-line stat cards ── -->
+      <div class="stats-row stats-row--4">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--total"><span class="icon-glyph">▤</span></div>
+          <div>
+            <div class="stat-value">{{ totalBooks }}</div>
+            <div class="stat-label">Total Books</div>
+            <div class="stat-sub">{{ activeBooks }} active</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--purple"><span class="icon-glyph">▥</span></div>
+          <div>
+            <div class="stat-value">{{ totalChapters }}</div>
+            <div class="stat-label">Total Chapters</div>
+            <div class="stat-sub">avg {{ avgChaptersPerBook }} / book</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--active"><span class="icon-glyph">✓</span></div>
+          <div>
+            <div class="stat-value">{{ totalTopics }}</div>
+            <div class="stat-label">Total Topics</div>
+            <div class="stat-sub">avg {{ avgTopicsPerChapter }} / chapter</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--orange"><span class="icon-glyph">🖼</span></div>
+          <div>
+            <div class="stat-value">{{ totalScreenshots }}</div>
+            <div class="stat-label">Total Screenshots</div>
+            <div class="stat-sub">{{ screenshotCoveragePct }}% topic coverage</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Secondary stat cards: assets ── -->
+      <div class="stats-row stats-row--4">
+        <div class="stat-card stat-card--sm">
+          <div class="stat-icon stat-icon--teal"><span class="icon-glyph">◆</span></div>
+          <div>
+            <div class="stat-value">{{ verifiedChapters }}<span class="stat-value-of">/{{ totalChapters }}</span></div>
+            <div class="stat-label">Chapters Verified</div>
+          </div>
+        </div>
+        <div class="stat-card stat-card--sm">
+          <div class="stat-icon stat-icon--green"><span class="icon-glyph">📊</span></div>
+          <div>
+            <div class="stat-value">{{ totalPptVersions }}</div>
+            <div class="stat-label">PPT Versions Created</div>
+          </div>
+        </div>
+        <div class="stat-card stat-card--sm">
+          <div class="stat-icon stat-icon--red"><span class="icon-glyph">📄</span></div>
+          <div>
+            <div class="stat-value">{{ totalPdfVersions }}</div>
+            <div class="stat-label">PDF Versions Created</div>
+          </div>
+        </div>
+        <div class="stat-card stat-card--sm">
+          <div class="stat-icon stat-icon--blue"><span class="icon-glyph">▶</span></div>
+          <div>
+            <div class="stat-value">{{ topicsWithVideo }}</div>
+            <div class="stat-label">Topics with Video</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Charts row: donuts ── -->
+      <div class="charts-row">
+
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <h3>Topic Status Breakdown</h3>
+            <span class="chart-card-sub">{{ totalTopics }} topics total</span>
+          </div>
+          <div class="donut-wrap">
+            <svg viewBox="0 0 100 100" class="donut-svg">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--c-border)" stroke-width="14"/>
+              @for (seg of donutSegments(topicStatusDonut); track seg.label) {
+                <circle cx="50" cy="50" r="40" fill="none" [attr.stroke]="seg.color" stroke-width="14"
+                        [attr.stroke-dasharray]="seg.dash" [attr.stroke-dashoffset]="seg.offset"
+                        transform="rotate(-90 50 50)" stroke-linecap="butt"/>
+              }
+            </svg>
+            <div class="donut-center">
+              <div class="donut-center-value">{{ finalPct }}%</div>
+              <div class="donut-center-label">Final</div>
+            </div>
+          </div>
+          <div class="donut-legend">
+            @for (seg of donutSegments(topicStatusDonut); track seg.label) {
+              <div class="legend-row">
+                <span class="legend-dot" [style.background]="seg.color"></span>
+                <span class="legend-label">{{ seg.label }}</span>
+                <span class="legend-value">{{ seg.value }} <span class="legend-pct">({{ seg.pct }}%)</span></span>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <h3>Chapter Verification</h3>
+            <span class="chart-card-sub">{{ totalChapters }} chapters total</span>
+          </div>
+          <div class="donut-wrap">
+            <svg viewBox="0 0 100 100" class="donut-svg">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--c-border)" stroke-width="14"/>
+              @for (seg of donutSegments(chapterVerificationDonut); track seg.label) {
+                <circle cx="50" cy="50" r="40" fill="none" [attr.stroke]="seg.color" stroke-width="14"
+                        [attr.stroke-dasharray]="seg.dash" [attr.stroke-dashoffset]="seg.offset"
+                        transform="rotate(-90 50 50)" stroke-linecap="butt"/>
+              }
+            </svg>
+            <div class="donut-center">
+              <div class="donut-center-value">{{ verifiedPct }}%</div>
+              <div class="donut-center-label">Verified</div>
+            </div>
+          </div>
+          <div class="donut-legend">
+            @for (seg of donutSegments(chapterVerificationDonut); track seg.label) {
+              <div class="legend-row">
+                <span class="legend-dot" [style.background]="seg.color"></span>
+                <span class="legend-label">{{ seg.label }}</span>
+                <span class="legend-value">{{ seg.value }} <span class="legend-pct">({{ seg.pct }}%)</span></span>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="chart-card chart-card--wide">
+          <div class="chart-card-header">
+            <h3>Assignment &amp; Workload</h3>
+            <span class="chart-card-sub">{{ assignedTopics }} assigned &middot; {{ unassignedTopics }} unassigned</span>
+          </div>
+          @if (assigneeRows.length) {
+            <div class="workload-list">
+              @for (a of assigneeRows; track a.admin_id) {
+                <div class="workload-row">
+                  <div class="workload-name">{{ a.admin_name }}</div>
+                  <div class="workload-bar-track">
+                    <div class="workload-bar-segment workload-bar-segment--final"
+                         [style.width.%]="(a.final / maxAssigneeLoad) * 100"></div>
+                    <div class="workload-bar-segment workload-bar-segment--prefinal"
+                         [style.width.%]="(a.pre_final / maxAssigneeLoad) * 100"></div>
+                    <div class="workload-bar-segment workload-bar-segment--pending"
+                         [style.width.%]="(a.pending / maxAssigneeLoad) * 100"></div>
+                  </div>
+                  <div class="workload-total">{{ a.total_assigned }}</div>
+                </div>
+              }
+            </div>
+            <div class="workload-legend">
+              <span class="legend-row legend-row--inline"><span class="legend-dot" style="background:#4ade80"></span>Final</span>
+              <span class="legend-row legend-row--inline"><span class="legend-dot" style="background:#facc15"></span>Pre-Final</span>
+              <span class="legend-row legend-row--inline"><span class="legend-dot" style="background:#f87171"></span>Pending</span>
+            </div>
+          } @else {
+            <div class="empty-inline">No topics have been assigned yet</div>
+          }
+        </div>
+      </div>
+
+      <!-- ── Subject-wise comparison bar chart ── -->
+      <div class="chart-card chart-card--full">
+        <div class="chart-card-header">
+          <h3>Subject-wise Content Volume</h3>
+          <button class="btn-export" (click)="exportSubjectCsv()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            Export CSV
+          </button>
+        </div>
+        <div class="bar-list">
+          @for (s of subjectBars; track s.subject_id) {
+            <div class="bar-row">
+              <div class="bar-row-label">{{ s.subject_name }}</div>
+              <div class="bar-row-track">
+                <div class="bar-row-fill" [style.width.%]="s.barPct">
+                  <span class="bar-row-count">{{ s.topic_count }}</span>
+                </div>
+              </div>
+              <div class="bar-row-meta">
+                <span>{{ s.book_count }} bk</span>
+                <span>{{ s.chapter_count }} ch</span>
+                <span class="bar-row-final">{{ s.final_topics }} final</span>
+              </div>
+            </div>
+          } @empty {
+            <div class="empty-inline">No subject data for the current filters</div>
+          }
+        </div>
+      </div>
+
+      <!-- ── Board / Class comparison table ── -->
+      <div class="table-card">
+        <div class="table-card-header">
+          <div>
+            <div class="table-title">Board &amp; Class Comparison</div>
+            <div class="table-subtitle">Books, chapters and topics per class across boards</div>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="vm-table">
+            <thead>
+              <tr>
+                <th>Board</th>
+                <th>Class</th>
+                <th class="num">Books</th>
+                <th class="num">Chapters</th>
+                <th class="num">Topics</th>
+                <th>Topics / Chapter</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of classRows; track r.board_id + '-' + r.class_id) {
+                <tr>
+                  <td><span class="board-pill">{{ r.board_name }}</span></td>
+                  <td>{{ r.class_name }}</td>
+                  <td class="num">{{ r.book_count }}</td>
+                  <td class="num">{{ r.chapter_count }}</td>
+                  <td class="num">{{ r.topic_count }}</td>
+                  <td>
+                    <div class="mini-bar-track">
+                      <div class="mini-bar-fill" [style.width.%]="r.chapter_count ? (r.topic_count / r.chapter_count) * 20 : 0"></div>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="6" class="empty-inline">No data available</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    }
+  }
+
+  <!-- ============================================================ -->
+  <!-- BOOK DRILL-DOWN -->
+  <!-- ============================================================ -->
+  @if (view === 'book') {
+    <button class="btn-back" (click)="backToOverview()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      Back to overview
+    </button>
+
+    @if (loadingBookDetail) {
+      <div class="loading-card"><div class="spinner"></div><span>Loading book report...</span></div>
+    } @else if (bookDetail) {
+
+      <div class="book-header-card">
+        <div class="book-header-icon">▤</div>
+        <div class="book-header-info">
+          <h2>{{ bookDetail.book.name }}</h2>
+          <div class="book-header-meta">
+            <span class="meta-chip">{{ bookDetail.book.code }}</span>
+            <span class="meta-chip">{{ bookDetail.book.board_name }}</span>
+            <span class="meta-chip">{{ bookDetail.book.class_name }}</span>
+            <span class="meta-chip">{{ bookDetail.book.subject_name }}</span>
+            <span class="meta-chip">{{ bookDetail.book.publisher_name }}</span>
+            <span class="meta-chip" [ngClass]="bookDetail.book.is_active ? 'meta-chip--active' : 'meta-chip--inactive'">
+              {{ bookDetail.book.is_active ? 'Active' : 'Inactive' }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-row stats-row--4">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--purple"><span class="icon-glyph">▥</span></div>
+          <div><div class="stat-value">{{ bookChapterRows.length }}</div><div class="stat-label">Chapters</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--total"><span class="icon-glyph">✓</span></div>
+          <div><div class="stat-value">{{ bookTotalTopics }}</div><div class="stat-label">Total Topics</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--active"><span class="icon-glyph">★</span></div>
+          <div><div class="stat-value">{{ bookFinalTopics }}</div><div class="stat-label">Final Topics</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--teal"><span class="icon-glyph">◆</span></div>
+          <div><div class="stat-value">{{ bookVerifiedChapters }}<span class="stat-value-of">/{{ bookChapterRows.length }}</span></div><div class="stat-label">Chapters Verified</div></div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-card-header">
+          <div>
+            <div class="table-title">Chapters ({{ bookChapterRows.length }})</div>
+            <div class="table-subtitle">Click a chapter to see its topic-level report</div>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="vm-table vm-table--clickable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Chapter</th>
+                <th>Verification</th>
+                <th class="num">Topics</th>
+                <th>Progress</th>
+                <th class="num">Assigned</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of bookChapterRows; track c.id) {
+                <tr (click)="openChapterReport(c.id)">
+                  <td><span class="seq-badge">{{ c.sequence }}</span></td>
+                  <td>
+                    <div class="chapter-name">{{ c.name }}</div>
+                    <div class="chapter-code">{{ c.chapter_code }}</div>
+                  </td>
+                  <td>
+                    <span class="badge-conf" [ngClass]="c.confidence === 'Verified' ? 'badge-conf--v' : 'badge-conf--u'">
+                      {{ c.confidence }}
+                    </span>
+                  </td>
+                  <td class="num">{{ c.topic_count }}</td>
+                  <td>
+                    <div class="progress-track">
+                      <div class="progress-fill" [style.width.%]="chapterProgressPct(c)"></div>
+                    </div>
+                    <span class="progress-label">{{ c.final_count }}/{{ c.topic_count }} final</span>
+                  </td>
+                  <td class="num">{{ c.assigned_count }}</td>
+                </tr>
+              } @empty {
+                <tr><td colspan="6" class="empty-inline">No chapters found for this book</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+
+  <!-- ============================================================ -->
+  <!-- CHAPTER DRILL-DOWN -->
+  <!-- ============================================================ -->
+  @if (view === 'chapter') {
+    <button class="btn-back" (click)="backToBook()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      Back to {{ bookDetail?.book?.name }}
+    </button>
+
+    @if (loadingChapterDetail) {
+      <div class="loading-card"><div class="spinner"></div><span>Loading chapter report...</span></div>
+    } @else if (chapterDetail) {
+
+      <div class="book-header-card">
+        <div class="book-header-icon">▥</div>
+        <div class="book-header-info">
+          <h2>{{ chapterDetail.chapter.name }}</h2>
+          <div class="book-header-meta">
+            <span class="meta-chip">{{ chapterDetail.chapter.chapter_code }}</span>
+            <span class="meta-chip">{{ chapterDetail.chapter.book_name }}</span>
+            <span class="badge-conf" [ngClass]="chapterDetail.chapter.confidence === 'Verified' ? 'badge-conf--v' : 'badge-conf--u'">
+              {{ chapterDetail.chapter.confidence }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-card-header">
+          <div>
+            <div class="table-title">Topics ({{ chapterTopicRows.length }})</div>
+            <div class="table-subtitle">Status, assignment and asset counts per topic</div>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="vm-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Topic</th>
+                <th>Status</th>
+                <th>Assigned To</th>
+                <th class="num">Screenshots</th>
+                <th class="num">PPT</th>
+                <th class="num">PDF</th>
+                <th>Video</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (t of chapterTopicRows; track t.id) {
+                <tr>
+                  <td><span class="seq-badge">{{ t.sequence }}</span></td>
+                  <td>
+                    <div class="chapter-name">{{ t.name || '(untitled)' }}</div>
+                    <div class="chapter-code">{{ t.topic_code }}</div>
+                  </td>
+                  <td><span class="status-pill" [ngClass]="statusClass(t.topic_status)">{{ statusLabel(t.topic_status) }}</span></td>
+                  <td>{{ t.assigned_to_name || '—' }}</td>
+                  <td class="num">{{ t.screenshot_count }}</td>
+                  <td class="num">{{ t.ppt_version_count }}</td>
+                  <td class="num">{{ t.pdf_version_count }}</td>
+                  <td>
+                    @if (t.has_video) { <span class="video-yes">●</span> } @else { <span class="video-no">—</span> }
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="8" class="empty-inline">No topics found for this chapter</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+
+</div>

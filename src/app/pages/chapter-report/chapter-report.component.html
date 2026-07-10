@@ -1,0 +1,307 @@
+<div class="report-page">
+
+  <!-- Page header -->
+  <div class="report-page-header">
+    <div class="report-page-header-left">
+      <button class="report-back-btn" (click)="goBack()" title="Back to chapters">
+        <span>‹</span> Back
+      </button>
+      <div class="report-page-title-block">
+        <div class="report-page-eyebrow">Chapter Report</div>
+        <div class="report-page-title">
+          {{ chapter?.name || 'Loading…' }}
+          <code class="report-chip" *ngIf="chapter?.chapter_code">{{ chapter?.chapter_code }}</code>
+        </div>
+      </div>
+    </div>
+    <div class="report-page-header-right">
+      <button class="btn btn-ghost btn-sm" (click)="printReport()" *ngIf="chapter">
+        🖨 Print / Export
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="report-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span>Generating chapter report…</span>
+  </div>
+
+  <!-- Error -->
+  <div class="report-error" *ngIf="!loading && error">
+    <div class="report-error-icon">⚠</div>
+    <div>{{ error }}</div>
+    <button class="btn btn-ghost btn-sm" (click)="retry()">Retry</button>
+  </div>
+
+  <!-- Content -->
+  <div class="report-body" *ngIf="!loading && !error && chapter">
+
+    <!-- Chapter meta strip -->
+    <div class="report-meta-grid">
+      <div class="report-meta-card">
+        <div class="report-meta-label">Book</div>
+        <div class="report-meta-value">{{ chapter.book_name || '—' }}</div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Book Code</div>
+        <div class="report-meta-value font-mono">{{ chapter.book_code || '—' }}</div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Sequence</div>
+        <div class="report-meta-value">{{ chapter.sequence ?? '—' }}</div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Confidence</div>
+        <div class="report-meta-value">
+          <span class="badge-conf" [ngClass]="chapter.confidence === 'Verified' ? 'badge-conf--v' : 'badge-conf--u'">
+            {{ chapter.confidence || 'Unverified' }}
+          </span>
+        </div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Chapter Status</div>
+        <div class="report-meta-value">
+          <span class="status-toggle-badge" [ngClass]="isActive(chapter.is_active) ? 'status-active' : 'status-inactive'">
+            {{ isActive(chapter.is_active) ? 'Active' : 'Inactive' }}
+          </span>
+        </div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Checked By</div>
+        <div class="report-meta-value">{{ chapter.checked_by || '—' }}</div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Created By</div>
+        <div class="report-meta-value">{{ chapter.created_by || '—' }}</div>
+      </div>
+      <div class="report-meta-card">
+        <div class="report-meta-label">Last Updated</div>
+        <div class="report-meta-value">{{ chapter.updated_at || '—' }}</div>
+      </div>
+    </div>
+
+    <!-- Overview: donut + stat cards -->
+    <div class="report-section">
+      <div class="report-section-title">Overview</div>
+
+      <div class="report-overview-grid">
+
+        <!-- Donut chart -->
+        <div class="report-donut-card">
+          <svg viewBox="0 0 140 140" class="report-donut">
+            <circle cx="70" cy="70" r="54" fill="none" stroke="var(--c-border)" stroke-width="16"/>
+            <circle
+              *ngFor="let seg of donutSegments()"
+              cx="70" cy="70" r="54" fill="none"
+              [attr.stroke]="seg.color"
+              stroke-width="16"
+              stroke-linecap="butt"
+              [attr.stroke-dasharray]="seg.dash"
+              [attr.stroke-dashoffset]="seg.offset"
+              transform="rotate(-90 70 70)"
+            />
+            <text x="70" y="65" text-anchor="middle" class="report-donut-total">{{ summary.total }}</text>
+            <text x="70" y="83" text-anchor="middle" class="report-donut-label">Topics</text>
+          </svg>
+          <div class="report-donut-legend">
+            <div class="report-legend-row">
+              <span class="report-legend-dot" style="background:#22c55e"></span>
+              Final <strong>{{ summary.final }}</strong> ({{ summary.pctFinal }}%)
+            </div>
+            <div class="report-legend-row">
+              <span class="report-legend-dot" style="background:#6366f1"></span>
+              Pre-Final <strong>{{ summary.preFinal }}</strong> ({{ summary.pctPreFinal }}%)
+            </div>
+            <div class="report-legend-row">
+              <span class="report-legend-dot" style="background:#f0a500"></span>
+              Pending <strong>{{ summary.pending }}</strong> ({{ summary.pctPending }}%)
+            </div>
+          </div>
+        </div>
+
+        <!-- Stat tiles -->
+        <div class="report-stats-grid">
+          <div class="report-stat-tile">
+            <div class="report-stat-num">{{ summary.total }}</div>
+            <div class="report-stat-label">Total Topics</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--assigned">
+            <div class="report-stat-num">{{ summary.assigned }}</div>
+            <div class="report-stat-label">Assigned</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--unassigned">
+            <div class="report-stat-num">{{ summary.unassigned }}</div>
+            <div class="report-stat-label">Unassigned</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--shots">
+            <div class="report-stat-num">{{ summary.withScreenshots }}</div>
+            <div class="report-stat-label">With Screenshots</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--video">
+            <div class="report-stat-num">{{ summary.withVideo }}</div>
+            <div class="report-stat-label">With Video</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--claude">
+            <div class="report-stat-num">{{ summary.claudePpt }}</div>
+            <div class="report-stat-label">Claude PPTs</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--gpt">
+            <div class="report-stat-num">{{ summary.gptPpt }}</div>
+            <div class="report-stat-label">ChatGPT PPTs</div>
+          </div>
+          <div class="report-stat-tile report-stat-tile--pdf">
+            <div class="report-stat-num">{{ summary.claudePdf }}</div>
+            <div class="report-stat-label">Claude PDFs</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status progress bar -->
+    <div class="report-section">
+      <div class="report-section-title">Completion Progress</div>
+      <div class="report-progress-track">
+        <div class="report-progress-seg report-progress-seg--final" [style.width.%]="summary.pctFinal"
+             [title]="summary.final + ' Final'"></div>
+        <div class="report-progress-seg report-progress-seg--prefinal" [style.width.%]="summary.pctPreFinal"
+             [title]="summary.preFinal + ' Pre-Final'"></div>
+        <div class="report-progress-seg report-progress-seg--pending" [style.width.%]="summary.pctPending"
+             [title]="summary.pending + ' Pending'"></div>
+      </div>
+    </div>
+
+    <!-- Assignee workload -->
+    <div class="report-section" *ngIf="byAssignee.length">
+      <div class="report-section-title">Topic Assignment Breakdown</div>
+      <div class="report-assignee-list">
+        <div class="report-assignee-row" *ngFor="let a of byAssignee">
+          <div class="report-assignee-name">{{ a.name }}</div>
+          <div class="report-assignee-bar-track">
+            <div class="report-assignee-bar report-assignee-bar--final" [style.width.%]="barPct(a.final, a.total)"></div>
+            <div class="report-assignee-bar report-assignee-bar--prefinal" [style.width.%]="barPct(a.preFinal, a.total)"></div>
+            <div class="report-assignee-bar report-assignee-bar--pending" [style.width.%]="barPct(a.pending, a.total)"></div>
+          </div>
+          <div class="report-assignee-counts">
+            <span class="report-count-pill report-count-pill--final">{{ a.final }}F</span>
+            <span class="report-count-pill report-count-pill--prefinal">{{ a.preFinal }}P</span>
+            <span class="report-count-pill report-count-pill--pending">{{ a.pending }}Pe</span>
+            <span class="report-count-total">{{ a.total }} total</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Per-topic table -->
+    <div class="report-section">
+      <div class="report-section-title-row">
+        <div class="report-section-title">All Topics ({{ filteredTopics.length }}<span *ngIf="filteredTopics.length !== topics.length"> of {{ topics.length }}</span>)</div>
+        <button class="report-clear-filters-btn" *ngIf="filtersActive" (click)="clearFilters()">Clear filters ✕</button>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="report-filter-bar">
+        <input
+          class="report-filter-input report-filter-search"
+          type="text"
+          placeholder="Search topic name or code…"
+          [(ngModel)]="filterSearch"
+          (ngModelChange)="applyFilters()"
+        />
+
+        <select class="report-filter-select" [(ngModel)]="filterStatus" (ngModelChange)="applyFilters()">
+          <option value="">All Status</option>
+          <option value="pending">Pending</option>
+          <option value="pre_final">Pre-Final</option>
+          <option value="final">Final</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterAssignee" (ngModelChange)="applyFilters()">
+          <option value="">All Assignees</option>
+          <option value="unassigned">Unassigned</option>
+          <option *ngFor="let a of assigneeOptions" [value]="a.id">{{ a.name }}</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterClaudePpt" (ngModelChange)="applyFilters()">
+          <option value="">Claude PPT: Any</option>
+          <option value="yes">Claude PPT: Done</option>
+          <option value="no">Claude PPT: Missing</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterGptPpt" (ngModelChange)="applyFilters()">
+          <option value="">ChatGPT PPT: Any</option>
+          <option value="yes">ChatGPT PPT: Done</option>
+          <option value="no">ChatGPT PPT: Missing</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterClaudePdf" (ngModelChange)="applyFilters()">
+          <option value="">Claude PDF: Any</option>
+          <option value="yes">Claude PDF: Done</option>
+          <option value="no">Claude PDF: Missing</option>
+        </select>
+      </div>
+
+      <div class="report-topics-scroll">
+        <table class="report-topics-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Topic</th>
+              <th>Topic Code</th>
+              <th>Status</th>
+              <th>Assigned To</th>
+              <th>Screenshots</th>
+              <th>Claude PPT</th>
+              <th>ChatGPT PPT</th>
+              <th>Claude PDF</th>
+              <th>Video</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let t of filteredTopics; let i = index">
+              <td class="idx">{{ i + 1 }}</td>
+              <td class="report-topic-name">{{ t.name || '(untitled)' }}</td>
+              <td>
+                <code class="report-topic-code">{{ t.topic_code || '—' }}</code>
+              </td>
+              <td>
+                <span class="status-toggle-badge final-badge" [ngClass]="statusClass(t.topic_status)">
+                  {{ statusLabel(t.topic_status) }}
+                </span>
+              </td>
+              <td class="text-muted">{{ t.assigned_to_name || '—' }}</td>
+              <td class="center">{{ t.screenshot_count || 0 }}</td>
+              <td class="center">
+                <span class="report-version-count" *ngIf="t.ppt_version_count">{{ t.ppt_version_count }}v</span>
+                <span class="text-muted" *ngIf="!t.ppt_version_count">—</span>
+              </td>
+              <td class="center">
+                <span class="report-version-count" *ngIf="t.slide_gpt_ppt">✓</span>
+                <span class="text-muted" *ngIf="!t.slide_gpt_ppt">—</span>
+              </td>
+              <td class="center">
+                <span class="report-version-count" *ngIf="t.pdf_version_count">{{ t.pdf_version_count }}v</span>
+                <span class="text-muted" *ngIf="!t.pdf_version_count">—</span>
+              </td>
+              <td class="center">
+                <span class="report-video-yes" *ngIf="t.has_video || t.youtube_link">▶</span>
+                <span class="text-muted" *ngIf="!(t.has_video || t.youtube_link)">—</span>
+              </td>
+              <td class="center">
+                <button class="report-open-topic-btn" (click)="openTopic(t)" title="Open this topic">Open →</button>
+              </td>
+            </tr>
+            <tr *ngIf="!filteredTopics.length">
+              <td colspan="11" class="report-empty-row">
+                {{ topics.length ? 'No topics match the selected filters.' : 'No topics found for this chapter.' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+</div>

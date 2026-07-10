@@ -1,0 +1,269 @@
+<div class="report-page">
+
+  <!-- Page header -->
+  <div class="report-page-header">
+    <div class="report-page-header-left">
+      <button class="report-back-btn" (click)="goBack()" title="Back">
+        <span>‹</span> Back
+      </button>
+      <div class="report-page-title-block">
+        <div class="report-page-eyebrow">Content Report</div>
+        <div class="report-page-title">Assignment Report</div>
+      </div>
+    </div>
+    <div class="report-page-header-right">
+      <button class="btn btn-ghost btn-sm" (click)="printReport()" *ngIf="!loading && !error">
+        🖨 Print / Export
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="report-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span>Generating assignment report…</span>
+  </div>
+
+  <!-- Error -->
+  <div class="report-error" *ngIf="!loading && error">
+    <div class="report-error-icon">⚠</div>
+    <div>{{ error }}</div>
+    <button class="btn btn-ghost btn-sm" (click)="retry()">Retry</button>
+  </div>
+
+  <!-- Content -->
+  <div class="report-body" *ngIf="!loading && !error">
+
+    <!-- Overview: donut + stat cards -->
+    <div class="report-section">
+      <div class="report-section-title">Overview</div>
+
+      <div class="report-overview-grid">
+
+        <!-- Donut chart -->
+        <div class="report-donut-card">
+          <svg viewBox="0 0 140 140" class="report-donut">
+            <circle cx="70" cy="70" r="54" fill="none" stroke="var(--c-border)" stroke-width="16"/>
+            <circle
+              *ngFor="let seg of donutSegments()"
+              cx="70" cy="70" r="54" fill="none"
+              [attr.stroke]="seg.color"
+              stroke-width="16"
+              stroke-linecap="butt"
+              [attr.stroke-dasharray]="seg.dash"
+              [attr.stroke-dashoffset]="seg.offset"
+              transform="rotate(-90 70 70)"
+            />
+            <text x="70" y="65" text-anchor="middle" class="report-donut-total">{{ summary.total_topics }}</text>
+            <text x="70" y="83" text-anchor="middle" class="report-donut-label">Topics</text>
+          </svg>
+          <div class="report-donut-legend">
+            <div class="report-legend-row">
+              <span class="report-legend-dot" style="background:#22c55e"></span>
+              Final <strong>{{ summary.final_topics }}</strong>
+            </div>
+            <div class="report-legend-row">
+              <span class="report-legend-dot" style="background:#6366f1"></span>
+              Pre-Final <strong>{{ summary.pre_final_topics }}</strong>
+            </div>
+            <div class="report-legend-row">
+              <span class="report-legend-dot" style="background:#f0a500"></span>
+              Pending <strong>{{ summary.pending_topics }}</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stat card: 3-across grid of tiles, mirrors the donut card's weight -->
+        <div class="assignment-stats-card">
+          <div class="report-stats-grid assignment-stats-grid">
+            <div class="report-stat-tile">
+              <div class="report-stat-num">{{ summary.total_topics }}</div>
+              <div class="report-stat-label">Total Topics</div>
+            </div>
+            <div class="report-stat-tile report-stat-tile--assigned">
+              <div class="report-stat-num">{{ summary.assigned_topics }}</div>
+              <div class="report-stat-label">Assigned</div>
+            </div>
+            <div class="report-stat-tile report-stat-tile--unassigned">
+              <div class="report-stat-num">{{ summary.unassigned_topics }}</div>
+              <div class="report-stat-label">Unassigned</div>
+            </div>
+            <div class="report-stat-tile">
+              <div class="report-stat-num">{{ byAssignee.length }}</div>
+              <div class="report-stat-label">Assignees</div>
+            </div>
+            <div class="report-stat-tile">
+              <div class="report-stat-num">{{ chaptersInvolved }}</div>
+              <div class="report-stat-label">Chapters</div>
+            </div>
+            <div class="report-stat-tile">
+              <div class="report-stat-num">{{ barPct(summary.assigned_topics, summary.total_topics) }}%</div>
+              <div class="report-stat-label">Coverage</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Per-user workload: bar chart + clickable filter cards -->
+    <div class="report-section" *ngIf="byAssignee.length">
+      <div class="report-section-title-row">
+        <div class="report-section-title">Assigned To — Workload</div>
+        <button class="report-clear-filters-btn" *ngIf="filterAssignee" (click)="selectAssignee(filterAssignee)">Clear selection ✕</button>
+      </div>
+
+      <div class="assignment-workload-list">
+        <div
+          class="assignment-workload-row"
+          *ngFor="let a of byAssignee"
+          [class.assignment-workload-row--active]="filterAssignee === asString(a.admin_id)"
+          (click)="selectAssignee(asString(a.admin_id))"
+        >
+          <div class="assignment-avatar">{{ initials(a.admin_name) }}</div>
+
+          <div class="assignment-workload-main">
+            <div class="assignment-workload-toprow">
+              <span class="assignment-workload-name">{{ a.admin_name }}</span>
+              <span class="assignment-workload-role" *ngIf="a.admin_role">{{ a.admin_role }}</span>
+            </div>
+            <div class="report-assignee-bar-track">
+              <div class="report-assignee-bar report-assignee-bar--final" [style.width.%]="barPct(a.final, a.total_assigned)"></div>
+              <div class="report-assignee-bar report-assignee-bar--prefinal" [style.width.%]="barPct(a.pre_final, a.total_assigned)"></div>
+              <div class="report-assignee-bar report-assignee-bar--pending" [style.width.%]="barPct(a.pending, a.total_assigned)"></div>
+            </div>
+          </div>
+
+          <div class="report-assignee-counts">
+            <span class="report-count-pill report-count-pill--final">{{ a.final }}F</span>
+            <span class="report-count-pill report-count-pill--prefinal">{{ a.pre_final }}P</span>
+            <span class="report-count-pill report-count-pill--pending">{{ a.pending }}Pe</span>
+            <span class="report-count-total">{{ a.total_assigned }} total</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Per-topic table -->
+    <div class="report-section">
+      <div class="report-section-title-row assignment-title-row--centered">
+        <div class="report-section-title">
+          Assigned Topics ({{ filteredTopics.length }}<span *ngIf="filteredTopics.length !== topics.length"> of {{ topics.length }}</span>)
+        </div>
+        <div class="assignment-pagination-compact" *ngIf="totalPages > 1">
+          <button class="assignment-page-btn assignment-page-btn--sm" (click)="prevPage()" [disabled]="currentPage === 1" title="Previous page">‹</button>
+          <span class="assignment-pagination-compact-label">Page {{ currentPage }} of {{ totalPages }}</span>
+          <button class="assignment-page-btn assignment-page-btn--sm" (click)="nextPage()" [disabled]="currentPage === totalPages" title="Next page">›</button>
+        </div>
+        <div class="assignment-title-row-actions">
+          <button class="report-clear-filters-btn" *ngIf="filtersActive" (click)="clearFilters()">Clear filters ✕</button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="report-filter-bar">
+        <input
+          class="report-filter-input report-filter-search"
+          type="text"
+          placeholder="Search topic, chapter, or book…"
+          [(ngModel)]="filterSearch"
+          (ngModelChange)="applyFilters()"
+        />
+
+        <select class="report-filter-select" [(ngModel)]="filterStatus" (ngModelChange)="applyFilters()">
+          <option value="">All Status</option>
+          <option value="pending">Pending</option>
+          <option value="pre_final">Pre-Final</option>
+          <option value="final">Final</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterAssignee" (ngModelChange)="applyFilters()">
+          <option value="">All Assignees</option>
+          <option value="unassigned">Unassigned</option>
+          <option *ngFor="let a of byAssignee" [value]="a.admin_id">{{ a.admin_name }}</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterBook" (ngModelChange)="onBookFilterChange()">
+          <option value="">All Books</option>
+          <option *ngFor="let b of bookOptions" [value]="b.id">{{ b.name }}</option>
+        </select>
+
+        <select class="report-filter-select" [(ngModel)]="filterChapter" (ngModelChange)="applyFilters()">
+          <option value="">All Chapters</option>
+          <option *ngFor="let c of visibleChapterOptions" [value]="c.id">{{ c.name }}</option>
+        </select>
+      </div>
+
+      <div class="report-topics-scroll">
+        <table class="report-topics-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Topic</th>
+              <th>Topic Code</th>
+              <th>Book / Chapter</th>
+              <th>Status</th>
+              <th>Assigned To</th>
+              <th>Assigned By</th>
+              <th>Assigned On</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let t of pagedTopics; let i = index">
+              <td class="idx">{{ rangeStart + i }}</td>
+              <td class="report-topic-name">{{ t.name || '(untitled)' }}</td>
+              <td>
+                <code class="report-topic-code">{{ t.topic_code || '—' }}</code>
+              </td>
+              <td class="text-muted assignment-book-chapter">
+                <div class="assignment-book-name">{{ t.book_name || '—' }}</div>
+                <div class="assignment-chapter-name">{{ t.chapter_name || '—' }}</div>
+              </td>
+              <td>
+                <span class="status-toggle-badge final-badge" [ngClass]="statusClass(t.topic_status)">
+                  {{ statusLabel(t.topic_status) }}
+                </span>
+              </td>
+              <td class="text-muted">
+                <span *ngIf="t.assigned_to_name">{{ t.assigned_to_name }}</span>
+                <span class="assignment-unassigned-tag" *ngIf="!t.assigned_to_name">Unassigned</span>
+              </td>
+              <td class="text-muted">{{ t.assigned_by_name || '—' }}</td>
+              <td class="text-muted">{{ formatDate(t.assigned_at) }}</td>
+              <td class="center">
+                <button class="report-open-topic-btn" (click)="openTopic(t)" title="Open this topic">Open →</button>
+              </td>
+            </tr>
+            <tr *ngIf="!pagedTopics.length">
+              <td colspan="9" class="report-empty-row">
+                {{ topics.length ? 'No topics match the selected filters.' : 'No topics found.' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="assignment-pagination" *ngIf="filteredTopics.length">
+        <div class="assignment-pagination-info">
+          Showing {{ rangeStart }}–{{ rangeEnd }} of {{ filteredTopics.length }}
+        </div>
+        <div class="assignment-pagination-controls">
+          <button class="assignment-page-btn" (click)="prevPage()" [disabled]="currentPage === 1" title="Previous page">‹</button>
+          <ng-container *ngFor="let p of pageNumbers">
+            <button
+              *ngIf="p !== '…'"
+              class="assignment-page-btn"
+              [class.assignment-page-btn--active]="p === currentPage"
+              (click)="goToPage(asNumber(p))"
+            >{{ p }}</button>
+            <span class="assignment-page-ellipsis" *ngIf="p === '…'">…</span>
+          </ng-container>
+          <button class="assignment-page-btn" (click)="nextPage()" [disabled]="currentPage === totalPages" title="Next page">›</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
