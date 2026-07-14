@@ -4,24 +4,31 @@
   <!-- BREADCRUMB / HEADER -->
   <!-- ============================================================ -->
   <div class="report-header">
-    <div class="report-crumbs">
-      <span class="crumb" [class.crumb--active]="view==='overview'" (click)="backToOverview()">Content Report</span>
-      @if (view === 'book' || view === 'chapter') {
-        <span class="crumb-sep">/</span>
-        <span class="crumb" [class.crumb--active]="view==='book'" (click)="view==='chapter' ? backToBook() : null">
-          {{ bookDetail?.book?.name || 'Book' }}
-        </span>
-      }
-      @if (view === 'chapter') {
-        <span class="crumb-sep">/</span>
-        <span class="crumb crumb--active">{{ chapterDetail?.chapter?.name || 'Chapter' }}</span>
-      }
+    <div class="report-header-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>
+      </svg>
     </div>
-    <p class="report-subtitle">
-      @if (view === 'overview') { Platform-wide analytics across books, chapters, topics and content assets }
-      @if (view === 'book') { Chapter-by-chapter breakdown for this book }
-      @if (view === 'chapter') { Topic-level detail for this chapter }
-    </p>
+    <div class="report-header-body">
+      <div class="report-crumbs">
+        <span class="crumb" [class.crumb--active]="view==='overview'" (click)="backToOverview()">Content Report</span>
+        @if (view === 'book' || view === 'chapter') {
+          <span class="crumb-sep">/</span>
+          <span class="crumb" [class.crumb--active]="view==='book'" (click)="view==='chapter' ? backToBook() : null">
+            {{ bookDetail?.book?.name || 'Book' }}
+          </span>
+        }
+        @if (view === 'chapter') {
+          <span class="crumb-sep">/</span>
+          <span class="crumb crumb--active">{{ chapterDetail?.chapter?.name || 'Chapter' }}</span>
+        }
+      </div>
+      <p class="report-subtitle">
+        @if (view === 'overview') { Platform-wide analytics across books, chapters, topics and content assets }
+        @if (view === 'book') { Chapter-by-chapter breakdown for this book }
+        @if (view === 'chapter') { Topic-level detail for this chapter }
+      </p>
+    </div>
   </div>
 
   <!-- ============================================================ -->

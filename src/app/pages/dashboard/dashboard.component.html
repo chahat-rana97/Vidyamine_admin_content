@@ -57,7 +57,7 @@
     </div>
 
     <!-- ── Notifications (topic assignments, etc.) ── -->
-    <section class="card notif-card" *ngIf="notifications.length">
+    <section class="card notif-card" *ngIf="!loading && notifications.length">
       <div class="notif-head">
         <div class="notif-head-title">
           <span class="notif-bell">🔔</span>

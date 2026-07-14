@@ -5,6 +5,9 @@
    Two namespaces exist across the codebase ( --xxx and --c-xxx ),
    so both are defined here pointing at the same palette. Toggling
    [data-theme] on <html> swaps every value app-wide.
+
+   --nav-bg is fixed to the brand navy (#0f1420) in BOTH themes —
+   the sidebar/topbar never change with light/dark mode.
    ══════════════════════════════════════════════════════════════ */
 :root,
 [data-theme=dark] {
@@ -15,10 +18,10 @@
   --bg-hover: #1f2433;
   --border: #252a38;
   --border-light: #2e3447;
-  --accent: #6366f1;
-  --accent-hover: #7577f3;
-  --accent-dim: rgba(99,102,241,0.12);
-  --accent-glow: rgba(99,102,241,0.25);
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-dim: rgba(37,99,235,0.14);
+  --accent-glow: rgba(37,99,235,0.3);
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -29,16 +32,16 @@
   --radius-sm: 6px;
   --shadow: 0 4px 24px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 40px rgba(0,0,0,0.6);
-  /* ---- sidebar / topbar (dark mode: same as surface) ---- */
-  --nav-bg: var(--bg-surface);
-  --nav-border: var(--border);
-  --nav-text: var(--text-primary);
-  --nav-text-muted: var(--text-muted);
-  --nav-text-secondary: var(--text-secondary);
-  --nav-item-hover: var(--bg-hover);
-  --nav-item-active-bg: var(--accent-dim);
-  --nav-item-active-text: var(--accent);
-  --nav-accent: var(--accent);
+  /* ---- sidebar / topbar — fixed brand navy, same in both themes ---- */
+  --nav-bg: #0f1420;
+  --nav-border: #232a3a;
+  --nav-text: #eef0f5;
+  --nav-text-muted: #7f879e;
+  --nav-text-secondary: #aab0c4;
+  --nav-item-hover: #1a2133;
+  --nav-item-active-bg: rgba(37,99,235,0.16);
+  --nav-item-active-text: #5b93ff;
+  --nav-accent: #3b82f6;
   /* ---- --c- namespace (dashboard/books/chapters/etc.) ---- */
   --c-bg-base: var(--bg-base);
   --c-bg-surface: var(--bg-surface);
@@ -66,10 +69,10 @@
   --bg-hover: #e9eaf0;
   --border: #e2e4ea;
   --border-light: #d5d8e0;
-  --accent: #6366f1;
-  --accent-hover: #4f52e0;
-  --accent-dim: rgba(99,102,241,0.08);
-  --accent-glow: rgba(99,102,241,0.18);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-dim: rgba(37,99,235,0.08);
+  --accent-glow: rgba(37,99,235,0.2);
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
@@ -80,16 +83,16 @@
   --radius-sm: 6px;
   --shadow: 0 4px 24px rgba(20,20,40,0.08);
   --shadow-lg: 0 8px 40px rgba(20,20,40,0.14);
-  /* ---- sidebar / topbar (light mode: neutral, same style as surface) ---- */
-  --nav-bg: var(--bg-surface);
-  --nav-border: var(--border);
-  --nav-text: var(--text-primary);
-  --nav-text-muted: var(--text-muted);
-  --nav-text-secondary: var(--text-secondary);
-  --nav-item-hover: var(--bg-hover);
-  --nav-item-active-bg: var(--accent-dim);
-  --nav-item-active-text: var(--accent);
-  --nav-accent: var(--accent);
+  /* ---- sidebar / topbar — fixed brand navy, same in both themes ---- */
+  --nav-bg: #0f1420;
+  --nav-border: #232a3a;
+  --nav-text: #eef0f5;
+  --nav-text-muted: #7f879e;
+  --nav-text-secondary: #aab0c4;
+  --nav-item-hover: #1a2133;
+  --nav-item-active-bg: rgba(37,99,235,0.16);
+  --nav-item-active-text: #5b93ff;
+  --nav-accent: #3b82f6;
   /* ---- --c- namespace ---- */
   --c-bg-base: var(--bg-base);
   --c-bg-surface: var(--bg-surface);

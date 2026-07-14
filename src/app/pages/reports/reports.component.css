@@ -7,8 +7,8 @@
   --c-text-muted: var(--text-muted, #9aa0bd);
   --c-radius: var(--radius, 12px);
   --c-radius-sm: var(--radius-sm, 8px);
-  --c-primary: var(--accent-primary, #6366f1);
-  --c-primary-hover: #5457e0;
+  --c-primary: var(--accent, #2563eb);
+  --c-primary-hover: var(--accent-hover, #3b82f6);
   --c-teal: #0a9e8c;
   --c-teal-soft: rgba(10, 158, 140, 0.12);
   --c-warn: #f0a500;
@@ -25,15 +25,55 @@
 /* ── Header / Breadcrumb ── */
 .report-header {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  background: linear-gradient(180deg, var(--c-bg-surface), rgba(255, 255, 255, 0.01));
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius);
+  position: relative;
+  overflow: hidden;
+}
+.report-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 32%);
+  pointer-events: none;
+}
+.report-header-icon {
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(59, 130, 246, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  color: var(--c-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+.report-header-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.report-header-body {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
 }
 .report-crumbs {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
 }
 .crumb {
   color: var(--c-text-muted);
@@ -50,11 +90,28 @@
 .crumb-sep {
   color: var(--c-text-muted);
   font-weight: 400;
+  opacity: 0.6;
+  font-size: 16px;
 }
 .report-subtitle {
   font-size: 13px;
   color: var(--c-text-muted);
-  margin: 0;
+  margin: 4px 0 0;
+}
+
+@media (max-width: 640px) {
+  .report-header {
+    padding: 16px 18px;
+  }
+  .report-header-icon {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border-radius: 11px;
+  }
+  .report-crumbs {
+    font-size: 18px;
+  }
 }
 
 /* ── Filter bar (mirrors books/chapters screens) ── */
@@ -217,7 +274,7 @@
   justify-content: center;
 }
 .stat-icon .icon-glyph { font-size: 17px; line-height: 1; }
-.stat-icon--total   { background: rgba(99, 102, 241, 0.16); color: #818cf8; }
+.stat-icon--total   { background: var(--c-primary-dim, rgba(37, 99, 235, 0.16)); color: var(--c-primary-hover); }
 .stat-icon--active  { background: rgba(34, 197, 94, 0.16);  color: #4ade80; }
 .stat-icon--purple  { background: rgba(168, 85, 247, 0.16); color: #c084fc; }
 .stat-icon--orange  { background: rgba(249, 115, 22, 0.16); color: #fb923c; }
@@ -450,7 +507,7 @@
 .bar-row-fill {
   height: 100%;
   min-width: 28px;
-  background: linear-gradient(90deg, var(--c-primary), #818cf8);
+  background: linear-gradient(90deg, var(--c-primary), var(--c-primary-hover));
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -537,8 +594,8 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: rgba(99, 102, 241, 0.14);
-  color: #818cf8;
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--c-primary-hover);
   font-size: 11px;
   font-weight: 700;
   flex-shrink: 0;
@@ -550,8 +607,8 @@
   border-radius: 4px;
   font-size: 12px;
   font-weight: 700;
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
+  background: rgba(37, 99, 235, 0.15);
+  color: var(--c-primary-hover);
 }
 
 .badge-conf {
@@ -616,7 +673,7 @@
 }
 .mini-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--c-primary), #818cf8);
+  background: linear-gradient(90deg, var(--c-primary), var(--c-primary-hover));
   border-radius: 999px;
 }
 
@@ -645,8 +702,8 @@
   height: 48px;
   min-width: 48px;
   border-radius: 12px;
-  background: rgba(99, 102, 241, 0.16);
-  color: #818cf8;
+  background: var(--c-primary-dim, rgba(37, 99, 235, 0.16));
+  color: var(--c-primary-hover);
   display: flex;
   align-items: center;
   justify-content: center;

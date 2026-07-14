@@ -17,9 +17,8 @@ export class ThemeService {
     const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
     if (saved === 'dark' || saved === 'light') return saved;
 
-    // fall back to OS preference if the user never chose explicitly
-    const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
-    return prefersLight ? 'light' : 'dark';
+    // No saved preference yet — default to light regardless of OS setting.
+    return 'light';
   }
 
   toggle() {
