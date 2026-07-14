@@ -52,8 +52,10 @@ export class PublishersComponent implements OnInit {
         this.loadingBoards = false;
         if (r?.status) {
           this.boards = this.readList(r);
-          this.selectedBoardId = String(this.boards[0]?.id || '');
-          if (this.selectedBoardId) this.load();
+          // Default to "All Boards" so every publisher is visible on first load,
+          // instead of silently scoping to whichever board loaded first.
+          this.selectedBoardId = '';
+          this.load();
         } else {
           this.toast.error(r?.message || 'Failed to load boards');
         }
@@ -71,14 +73,14 @@ export class PublishersComponent implements OnInit {
   }
 
   load() {
-    if (!this.selectedBoardId) {
-      this.publishers = [];
-      this.applyFilter();
-      return;
-    }
-
     this.loading = true;
-    this.api.get<any>(`/publishers?board_id=${encodeURIComponent(this.selectedBoardId)}`).subscribe({
+    // Empty selectedBoardId means "All Boards" — the API returns every publisher
+    // across all boards when board_id is omitted.
+    const url = this.selectedBoardId
+      ? `/publishers?board_id=${encodeURIComponent(this.selectedBoardId)}`
+      : '/publishers';
+
+    this.api.get<any>(url).subscribe({
       next: r => {
         if (r?.status) {
           this.publishers = this.readList(r);
@@ -207,7 +209,8 @@ export class PublishersComponent implements OnInit {
   }
 
   boardName(p: any): string {
-    const boardId = String(p.board_id || this.selectedBoardId || '');
+    if (p.board_name) return p.board_name;
+    const boardId = String(p.board_id || '');
     const board = this.boards.find(b => String(b.id) === boardId);
     return board?.name || board?.code || '';
   }

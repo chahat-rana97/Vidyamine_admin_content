@@ -117,7 +117,7 @@
   
 
   <!-- Topic rows -->
-  <div class="topic-list" *ngIf="!loading; else loadingTpl">
+  <div class="topic-list" #topicListEl (scroll)="onTopicListScroll()" *ngIf="!loading; else loadingTpl">
 
     <div class="topic-row" [id]="'topic-row-' + t.id" [class.topic-row--selected]="isTopicSelected(t)" *ngFor="let t of filteredTopics; let i = index">
 

@@ -4,11 +4,28 @@
     <h1 class="page-title">Admin Users</h1>
     <p class="page-subtitle">Manage panel access — create, edit, and control permissions.</p>
   </div>
-  @if (isSuperadmin) {
-    <button class="btn-add" (click)="openAdd()">
+  <div class="btn-add-wrap">
+    <button
+      class="btn-add"
+      [class.is-restricted]="!isSuperadmin"
+      (click)="onAddUserClick($event)">
       <span class="btn-add-icon">+</span> Add User
     </button>
-  }
+    @if (!isSuperadmin) {
+      <div class="btn-add-tooltip">
+        <span class="tooltip-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="10" width="16" height="10" rx="2"/>
+            <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+          </svg>
+        </span>
+        <div class="tooltip-text">
+          <strong>Access Restricted</strong>
+          <span>Only a Super Admin can add new users</span>
+        </div>
+      </div>
+    }
+  </div>
 </div>
 
 <!-- Stat Cards -->
@@ -58,6 +75,15 @@
       <div class="stat-label">Active</div>
     </div>
   </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--online">
+      <span class="presence-dot presence-dot--online"></span>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ countOnline() }}</div>
+      <div class="stat-label">Online Now</div>
+    </div>
+  </div>
 </div>
 
 <!-- Table Card -->
@@ -89,6 +115,7 @@
           <th>Contact</th>
           <th>Role</th>
           <th>Status</th>
+          <th>Presence</th>
           <th>Created</th>
           @if (isAdminOrAbove) { <th>Created By</th> }
           @if (isSuperadmin) { <th class="th-actions">Actions</th> }
@@ -97,7 +124,7 @@
       <tbody>
         @if (filtered.length === 0) {
           <tr>
-            <td [attr.colspan]="(isSuperadmin ? 7 : 6) + (isAdminOrAbove ? 1 : 0)" class="empty-cell">
+            <td [attr.colspan]="(isSuperadmin ? 8 : 7) + (isAdminOrAbove ? 1 : 0)" class="empty-cell">
               <div class="empty-state">
                 <div class="empty-icon"></div>
                 <p>No admin users found</p>
@@ -134,6 +161,16 @@
             <td>
               <span class="status-badge" [class.status-badge--active]="u.is_active">
                 {{ u.is_active ? 'Active' : 'Inactive' }}
+              </span>
+            </td>
+            <td>
+              <span class="presence-cell" [title]="isOnline(u) ? 'Online now' : ('Last seen: ' + lastSeenText(u))">
+                <span class="presence-dot" [class.presence-dot--online]="isOnline(u)" [class.presence-dot--offline]="!isOnline(u)"></span>
+                @if (isOnline(u)) {
+                  <span class="presence-text presence-text--online">Online</span>
+                } @else {
+                  <span class="presence-text presence-text--offline">{{ lastSeenText(u) }}</span>
+                }
               </span>
             </td>
             <td class="td-date">{{ u.created_at | date:'d MMM yyyy' }}</td>

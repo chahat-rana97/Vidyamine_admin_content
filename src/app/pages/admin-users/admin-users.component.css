@@ -21,6 +21,11 @@
   margin: 0;
 }
 
+.btn-add-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
 .btn-add {
   display: flex;
   align-items: center;
@@ -38,6 +43,98 @@
 }
 .btn-add:hover {
   opacity: 0.88;
+}
+
+/* Shown to admin/editor: same size and position, but visually muted with a
+   lock cue so it reads as restricted rather than fully disabled/hidden. */
+.btn-add.is-restricted {
+  background: var(--c-bg-elevated, #2a2a35);
+  color: var(--c-text-secondary, #9ca3af);
+  border: 1px solid var(--nav-border, rgba(255,255,255,0.08));
+  cursor: not-allowed;
+}
+.btn-add.is-restricted:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+.btn-add.is-restricted .btn-add-icon {
+  opacity: 0.7;
+}
+
+/* ── Restricted tooltip — appears on hover, no click needed ── */
+.btn-add-tooltip {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 260px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--c-bg-elevated, #1c1c24);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  z-index: 40;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+  pointer-events: none;
+}
+
+.btn-add-wrap:hover .btn-add-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* small pointer arrow, aligned toward the right side of the button */
+.btn-add-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 18px;
+  width: 11px;
+  height: 11px;
+  background: var(--c-bg-elevated, #1c1c24);
+  border-left: 1px solid rgba(239, 68, 68, 0.25);
+  border-top: 1px solid rgba(239, 68, 68, 0.25);
+  transform: rotate(45deg);
+}
+
+.tooltip-icon {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tooltip-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tooltip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tooltip-text strong {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary, #f3f4f6);
+  letter-spacing: -0.1px;
+}
+.tooltip-text span {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted, #9ca3af);
 }
 
 .btn-add-icon {
@@ -730,5 +827,61 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================================
+   PRESENCE (Online / Offline / Last Seen)
+   ============================================================ */
+
+.stat-icon--online {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.presence-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: default;
+}
+
+.presence-dot {
+  width: 9px;
+  height: 9px;
+  min-width: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.presence-dot--online {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  animation: presencePulse 2s ease-in-out infinite;
+}
+
+.presence-dot--offline {
+  background: #6b7280;
+}
+
+.presence-text {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.presence-text--online {
+  color: #22c55e;
+}
+
+.presence-text--offline {
+  color: var(--text-secondary, #9ca3af);
+}
+
+@keyframes presencePulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.08);
   }
 }

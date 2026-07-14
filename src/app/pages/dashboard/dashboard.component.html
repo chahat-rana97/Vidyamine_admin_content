@@ -2,7 +2,7 @@
   <div class="dashboard-shell">
 
     <!-- Hero -->
-    <section class="card hero-card">
+    <section class="card hero-card hero-card--slim">
       <div class="hero-copy">
         <div class="page-title-row">
           <span class="wave-icon">
@@ -21,53 +21,40 @@
             </p>
           </div>
         </div>
-
-        <div class="hero-chips">
-          <span class="hero-chip">{{ boards.length }} boards</span>
-          <span class="hero-chip">{{ books.length }} books</span>
-          <span class="hero-chip">{{ chapters.length }} chapters</span>
-          <span class="hero-chip">{{ topics.length }} topics</span>
-        </div>
       </div>
 
-      <div class="hero-side">
-        <span class="date-badge">{{ today | date:'EEE, MMM d yyyy' }}</span>
-
-        <div class="hero-quick-links">
-          <a routerLink="/boards" class="hero-link">
-            <span>Boards</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-            </svg>
-          </a>
-          <a routerLink="/books" class="hero-link">
-            <span>Books</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-            </svg>
-          </a>
-          <a routerLink="/chapters" class="hero-link">
-            <span>Chapters</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-            </svg>
-          </a>
-        </div>
-
-        <div class="hero-insight">
-          <div class="hero-insight-head">
-            <span>Chapter verification</span>
-            <strong>{{ verificationPct }}%</strong>
-          </div>
-          <div class="hero-insight-sub">
-            {{ verificationVerified }} of {{ verificationTotal }} chapters confirmed accurate
-          </div>
-          <div class="hero-insight-bar">
-            <div class="hero-insight-fill" [style.width.%]="verificationPct"></div>
-          </div>
-        </div>
+      <div class="hero-side hero-side--slim">
+        <span class="date-badge">
+          <span class="date-badge-date">{{ today | date:'EEE, MMM d yyyy' }}</span>
+          <span class="date-badge-sep">·</span>
+          <span class="date-badge-time">{{ now | date:'HH:mm:ss' }}</span>
+        </span>
       </div>
     </section>
+
+    <!-- KPI Stat Cards (moved directly under the hero) -->
+    <div class="stats-row">
+      <a class="stat-card"
+         *ngFor="let s of stats"
+         [routerLink]="(s.route === '/admin-users' && isAdminUsersRestricted) ? null : s.route"
+         [class.is-restricted]="s.route === '/admin-users' && isAdminUsersRestricted"
+         (click)="s.route === '/admin-users' ? onRestrictedLinkClick(s.label, $event) : null">
+        <span class="stat-accent stat-accent--{{ s.accent }}"></span>
+        <div class="stat-top-row">
+          <span class="stat-label">{{ s.label }}</span>
+          <span class="stat-trend" *ngIf="s.trend !== undefined" [class.stat-trend--down]="s.trend < 0" [class.stat-trend--flat]="s.trend === 0">
+            <svg *ngIf="s.trend > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+            <svg *ngIf="s.trend < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
+            {{ s.trend > 0 ? '+' : '' }}{{ s.trend }}%
+          </span>
+        </div>
+        <span class="stat-value" [countUp]="s.value"></span>
+        <span class="stat-sub">{{ s.sub }}</span>
+        <svg class="stat-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+        </svg>
+      </a>
+    </div>
 
     <!-- ── Notifications (topic assignments, etc.) ── -->
     <section class="card notif-card" *ngIf="notifications.length">
@@ -115,30 +102,6 @@
 
     <ng-container *ngIf="!loading; else skeletonTpl">
 
-      <!-- KPI Stat Cards -->
-      <div class="stats-row">
-        <a class="stat-card"
-           *ngFor="let s of stats"
-           [routerLink]="(s.route === '/admin-users' && isAdminUsersRestricted) ? null : s.route"
-           [class.is-restricted]="s.route === '/admin-users' && isAdminUsersRestricted"
-           (click)="s.route === '/admin-users' ? onRestrictedLinkClick(s.label, $event) : null">
-          <span class="stat-accent stat-accent--{{ s.accent }}"></span>
-          <div class="stat-top-row">
-            <span class="stat-label">{{ s.label }}</span>
-            <span class="stat-trend" *ngIf="s.trend !== undefined" [class.stat-trend--down]="s.trend < 0" [class.stat-trend--flat]="s.trend === 0">
-              <svg *ngIf="s.trend > 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
-              <svg *ngIf="s.trend < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7 7 17"/><path d="M17 17H7V7"/></svg>
-              {{ s.trend > 0 ? '+' : '' }}{{ s.trend }}%
-            </span>
-          </div>
-          <span class="stat-value">{{ s.value }}</span>
-          <span class="stat-sub">{{ s.sub }}</span>
-          <svg class="stat-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-          </svg>
-        </a>
-      </div>
-
       <!-- Pipeline -->
       <div class="panel-block">
         <div class="panel-block-header">
@@ -163,7 +126,7 @@
                   ></div>
                 </div>
                 <div class="funnel-meta">
-                  <span class="funnel-value" [style.color]="stage.color">{{ stage.value }}</span>
+                  <span class="funnel-value" [style.color]="stage.color" [countUp]="stage.value"></span>
                   <span class="funnel-label">{{ stage.label }}</span>
                 </div>
               </a>
@@ -720,13 +683,6 @@
 
     <!-- Skeleton -->
     <ng-template #skeletonTpl>
-      <div class="stats-row">
-        <div class="stat-card skeleton" *ngFor="let i of [1,2,3,4,5,6]">
-          <div class="sk-box" style="width:70px;height:11px;margin-bottom:10px"></div>
-          <div class="sk-box" style="width:50px;height:26px;margin-bottom:8px"></div>
-          <div class="sk-box" style="width:80px;height:11px"></div>
-        </div>
-      </div>
       <div class="analytics-grid">
         <div class="card panel skeleton" style="height:280px"></div>
         <div class="card panel skeleton" style="height:280px"></div>

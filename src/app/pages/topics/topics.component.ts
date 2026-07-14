@@ -168,6 +168,8 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
   chapterId: number | null = null;
   chapter: any = null;
 
+  @ViewChild('topicListEl') topicListEl?: ElementRef<HTMLElement>;
+
   // ── List state ──
   topics: any[] = [];
   loading = false;
@@ -211,7 +213,45 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
    * so we only need to pass the topic_id here.
    */
   openCompareView(topic: any) {
+    this.saveScrollPosition();
     this.router.navigate(['/compare'], { queryParams: { topic_id: topic.id } });
+  }
+
+  // ── Scroll position memory: remembers where you were in the topic list
+  // per chapter, so returning from Compare view (or any other screen) drops
+  // you back where you left off instead of snapping to the top. ──
+  private scrollPosKey(): string {
+    return `vm_topics_scroll_${this.chapterId}`;
+  }
+
+  private saveScrollPosition() {
+    const el = this.topicListEl?.nativeElement;
+    if (!el || !this.chapterId) return;
+    sessionStorage.setItem(this.scrollPosKey(), String(el.scrollTop));
+  }
+
+  onTopicListScroll() {
+    // Persist continuously (not just on navigate-away) so a browser back
+    // button / tab close / accidental refresh still restores correctly.
+    this.saveScrollPosition();
+  }
+
+  /** Restores the saved scroll position for this chapter, if any. Takes
+   *  priority over the "jump to a specific topic" flow (focusTopicId) only
+   *  when there's no explicit topic_id in the URL — an explicit deep link
+   *  (e.g. from the Chapter Report) should still win. */
+  private restoreScrollPosition(): boolean {
+    if (this.focusTopicId) return false; // explicit deep link takes priority
+    const saved = sessionStorage.getItem(this.scrollPosKey());
+    if (saved === null) return false;
+    const top = Number(saved);
+    if (isNaN(top)) return false;
+
+    setTimeout(() => {
+      const el = this.topicListEl?.nativeElement;
+      if (el) el.scrollTop = top;
+    }, 0);
+    return true;
   }
 
   /** topic_id passed in from the Chapter Report screen, used to scroll to / highlight that topic once loaded. */
@@ -458,7 +498,9 @@ export class TopicsComponent implements OnInit, AfterViewInit, OnDestroy {
         this.topics = list.map((t: any) => this.hydrateTopic(t));
         this.applyTopicFilter();
         this.loading = false;
-        this.scrollToFocusedTopic();
+        if (!this.restoreScrollPosition()) {
+          this.scrollToFocusedTopic();
+        }
       },
       error: () => {
         this.topics = [];

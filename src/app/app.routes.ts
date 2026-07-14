@@ -30,16 +30,8 @@ export const routes: Routes = [
       { path: 'chapters',    loadComponent: () => import('./pages/chapters/chapters.component').then(m => m.ChaptersComponent) },
       { path: 'topics',      loadComponent: () => import('./pages/topics/topics.component').then(m => m.TopicsComponent) },
       { path: 'reports/content', loadComponent: () => import('./pages/reports/reports.component').then(m => m.ReportsComponent) },
-      // Full-page Chapter Report — drill-down screen opened from the
-      // "Report" icon on the Chapters list (Manage Chapters). Stays inside
-      // the LayoutComponent shell (sidebar/topbar) like the rest of the
-      // admin pages, unlike the standalone Compare view above.
+      { path: 'reports/chapter-coverage', loadComponent: () => import('./pages/chapter-coverage-report/chapter-coverage-report.component').then(m => m.ChapterCoverageReportComponent) },
       { path: 'reports/chapters/:id', loadComponent: () => import('./pages/chapter-report/chapter-report.component').then(m => m.ChapterReportComponent) },
-      // Assignment Report — dedicated cross-chapter report showing every
-      // assigned/unassigned topic with per-user workload breakdown. Opened
-      // from the "Assignment Report" sub-item under Reports in the sidebar,
-      // and also reachable via the "Open" link on individual topic rows
-      // linking back from the Topics screen.
       { path: 'reports/assignments', loadComponent: () => import('./pages/assignment-report/assignment-report.component').then(m => m.AssignmentReportComponent) },
     ]
   },

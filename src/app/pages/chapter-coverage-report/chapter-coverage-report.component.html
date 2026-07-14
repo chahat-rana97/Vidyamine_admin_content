@@ -1,0 +1,199 @@
+<div class="report-page">
+
+  <!-- Page header -->
+  <div class="report-page-header">
+    <div class="report-page-header-left">
+      <div class="report-page-title-block">
+        <div class="report-page-eyebrow">Reports</div>
+        <div class="report-page-title">Chapter Coverage Report</div>
+        <div class="cov-subtitle">Which chapters are missing screenshots or topics, book by book</div>
+      </div>
+    </div>
+    <div class="report-page-header-right">
+      <button class="btn btn-ghost btn-sm" (click)="printReport()" *ngIf="!loading && !error">
+        🖨 Print / Export
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="report-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span>Building coverage report…</span>
+  </div>
+
+  <!-- Error -->
+  <div class="report-error" *ngIf="!loading && error">
+    <div class="report-error-icon">⚠</div>
+    <div>{{ error }}</div>
+    <button class="btn btn-ghost btn-sm" (click)="retry()">Retry</button>
+  </div>
+
+  <!-- Content -->
+  <div class="report-body" *ngIf="!loading && !error">
+
+    <!-- Summary tiles -->
+    <div class="cov-tiles">
+      <div class="cov-tile cov-tile--none">
+        <div class="cov-tile-v">{{ summary.noScreenshots }}</div>
+        <div class="cov-tile-l">No screenshots</div>
+      </div>
+      <div class="cov-tile cov-tile--none">
+        <div class="cov-tile-v">{{ summary.noTopics }}</div>
+        <div class="cov-tile-l">No topics</div>
+      </div>
+      <div class="cov-tile cov-tile--warn">
+        <div class="cov-tile-v">{{ summary.noEither }}</div>
+        <div class="cov-tile-l">Missing screenshots OR topics</div>
+      </div>
+      <div class="cov-tile cov-tile--ok">
+        <div class="cov-tile-v">{{ summary.fullyCovered }}</div>
+        <div class="cov-tile-l">Fully covered</div>
+      </div>
+      <div class="cov-tile">
+        <div class="cov-tile-v">{{ summary.total }}</div>
+        <div class="cov-tile-l">Chapters in view</div>
+      </div>
+      <div class="cov-tile">
+        <div class="cov-tile-v">{{ summary.totalScreenshots }}</div>
+        <div class="cov-tile-l">Total screenshots</div>
+      </div>
+      <div class="cov-tile">
+        <div class="cov-tile-v">{{ summary.totalTopics }}</div>
+        <div class="cov-tile-l">Total topics</div>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="cov-filters">
+      <div class="cov-fg">
+        <label>Board</label>
+        <select [(ngModel)]="filterBoard" (ngModelChange)="onBoardChange()">
+          <option value="">All boards</option>
+          <option *ngFor="let b of boardOptions" [value]="b.id">{{ b.name }}</option>
+        </select>
+      </div>
+      <div class="cov-fg">
+        <label>Class</label>
+        <select [(ngModel)]="filterClass" (ngModelChange)="onClassChange()">
+          <option value="">All classes</option>
+          <option *ngFor="let c of classOptions" [value]="c.id">{{ c.name }}</option>
+        </select>
+      </div>
+      <div class="cov-fg">
+        <label>Subject</label>
+        <select [(ngModel)]="filterSubject" (ngModelChange)="onSubjectChange()">
+          <option value="">All subjects</option>
+          <option *ngFor="let s of subjectOptions" [value]="s.name">{{ s.name }}</option>
+        </select>
+      </div>
+      <div class="cov-fg">
+        <label>Book</label>
+        <select [(ngModel)]="filterBook" (ngModelChange)="applyFilters()">
+          <option value="">All books</option>
+          <option *ngFor="let bk of bookOptions" [value]="bk.id">{{ bk.name }}</option>
+        </select>
+      </div>
+      <div class="cov-fg cov-fg--search">
+        <label>Search chapter</label>
+        <input type="text" placeholder="type to filter…" [(ngModel)]="filterSearch" (ngModelChange)="applyFilters()">
+      </div>
+
+      <div class="cov-fspacer"></div>
+
+      <div class="cov-fg">
+        <label>Show</label>
+        <div class="cov-segbtns">
+          <button [class.on]="filterShow === 'all'" (click)="setShow('all')">All</button>
+          <button [class.on]="filterShow === 'no-screenshots'" (click)="setShow('no-screenshots')">No screenshots</button>
+          <button [class.on]="filterShow === 'no-topics'" (click)="setShow('no-topics')">No topics</button>
+          <button [class.on]="filterShow === 'no-either'" (click)="setShow('no-either')">Missing either</button>
+          <button [class.on]="filterShow === 'complete'" (click)="setShow('complete')">Complete</button>
+        </div>
+      </div>
+
+      <div class="cov-fg">
+        <label>Group by</label>
+        <div class="cov-segbtns">
+          <button [class.on]="groupBy === 'book'" (click)="setGroupBy('book')">Book</button>
+          <button [class.on]="groupBy === 'subject'" (click)="setGroupBy('subject')">Subject</button>
+          <button [class.on]="groupBy === 'class'" (click)="setGroupBy('class')">Class</button>
+        </div>
+      </div>
+
+      <button class="cov-clearbtn" *ngIf="filtersActive" (click)="clearFilters()">Clear ✕</button>
+    </div>
+
+    <!-- Group table -->
+    <div class="cov-grouptable">
+      <div class="cov-gt-head">
+        <div>Chapter</div>
+        <div>Topics</div>
+        <div>Shots</div>
+        <div>Coverage</div>
+        <div>Flag</div>
+      </div>
+
+      <div *ngIf="!groups.length" class="cov-empty-note">No chapters match these filters.</div>
+
+      <div class="cov-grp" *ngFor="let g of groups" [class.open]="isGroupOpen(g.key)">
+        <div class="cov-grphdr" (click)="toggleGroup(g.key)">
+          <span class="cov-tw">{{ isGroupOpen(g.key) ? '▾' : '▸' }}</span>
+          <span class="cov-gname">{{ g.key }}</span>
+          <span class="cov-gmeta">{{ g.total }} chapters · {{ g.withScreenshots }} with shots · {{ g.withTopics }} with topics</span>
+          <span class="cov-gspace"></span>
+          <span class="cov-pill cov-pill--none" *ngIf="g.noScreenshots === g.total || g.noTopics === g.total">ALL EMPTY</span>
+          <span class="cov-pill cov-pill--some" *ngIf="!(g.noScreenshots === g.total || g.noTopics === g.total) && (g.noScreenshots > 0 || g.noTopics > 0)">
+            {{ g.noScreenshots }} no shots · {{ g.noTopics }} no topics
+          </span>
+          <span class="cov-pill cov-pill--ok" *ngIf="g.noScreenshots === 0 && g.noTopics === 0">COMPLETE</span>
+          <span class="cov-cov">
+            <span class="cov-covbar"><span [style.width.%]="g.pct" [style.background]="g.barColor"></span></span>
+            <span class="cov-covpct">{{ g.pct }}%</span>
+          </span>
+        </div>
+
+        <div class="cov-rows" *ngIf="isGroupOpen(g.key)">
+          <div class="cov-row" *ngFor="let c of g.chapters"
+               [class.empty]="c.screenshotStatus === 'none' || c.topicStatus === 'none'"
+               (click)="openChapter(c)">
+            <div class="cov-ch">
+              <span class="cov-chno" [class.empty]="c.screenshotStatus === 'none' || c.topicStatus === 'none'">{{ c.sequence }}</span>
+              <div>
+                <div class="cov-chname">{{ c.chapter_name }}</div>
+                <div class="cov-book" *ngIf="groupBy === 'book'">{{ c.board_name }} · {{ c.class_name }} · {{ c.subject_name }}</div>
+                <div class="cov-book" *ngIf="groupBy === 'subject'">{{ c.board_name }} · {{ c.class_name }} · {{ c.book_name }}</div>
+                <div class="cov-book" *ngIf="groupBy === 'class'">{{ c.board_name }} · {{ c.subject_name }} · {{ c.book_name }}</div>
+              </div>
+            </div>
+            <div class="cov-num" [class.empty]="c.topicStatus === 'none'">{{ c.topic_count }}</div>
+            <div class="cov-num" [class.empty]="c.screenshotStatus === 'none'">{{ c.screenshot_count }}</div>
+            <div class="cov-cov">
+              <span class="cov-covbar cov-covbar--sm">
+                <span [style.width.%]="(c.screenshot_count / SCREENSHOT_TARGET * 100) < 100 ? (c.screenshot_count / SCREENSHOT_TARGET * 100) : 100"
+                      [style.background]="c.screenshotStatus === 'none' ? 'var(--report-cov-none)' : (c.screenshotStatus === 'ok' ? 'var(--report-cov-ok)' : 'var(--report-cov-some)')"></span>
+              </span>
+              <span class="cov-covpct">{{ c.screenshot_count }}/{{ SCREENSHOT_TARGET }}</span>
+            </div>
+            <div class="cov-flagcell">
+              <span class="cov-pill cov-pill--none" *ngIf="c.screenshotStatus === 'none' && c.topicStatus === 'none'">EMPTY</span>
+              <span class="cov-pill cov-pill--none" *ngIf="c.screenshotStatus === 'none' && c.topicStatus !== 'none'">NO SHOTS</span>
+              <span class="cov-pill cov-pill--none" *ngIf="c.screenshotStatus !== 'none' && c.topicStatus === 'none'">NO TOPICS</span>
+              <span class="cov-pill cov-pill--some" *ngIf="c.screenshotStatus === 'some' && c.topicStatus === 'ok'">PARTIAL</span>
+              <span class="cov-pill cov-pill--ok" *ngIf="c.screenshotStatus === 'ok' && c.topicStatus === 'ok'">OK</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cov-legend">
+      <span><i class="cov-dot" style="background:var(--report-cov-none)"></i> No screenshot / no topics</span>
+      <span><i class="cov-dot" style="background:var(--report-cov-some)"></i> Under target</span>
+      <span><i class="cov-dot" style="background:var(--report-cov-ok)"></i> At / above target</span>
+      <span class="cov-legend-target">Screenshot target per chapter: <b>{{ SCREENSHOT_TARGET }}</b></span>
+    </div>
+
+  </div>
+
+</div>

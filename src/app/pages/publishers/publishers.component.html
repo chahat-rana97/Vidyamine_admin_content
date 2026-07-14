@@ -38,7 +38,7 @@
     <div class="filter-field">
       <label>BOARD</label>
       <select class="filter-select" [(ngModel)]="selectedBoardId" (ngModelChange)="onBoardChange()" [disabled]="loadingBoards">
-        <option value="">Select board</option>
+        <option value="">All Boards</option>
         <option *ngFor="let b of boards" [value]="b.id">{{ boardLabel(b) }}</option>
       </select>
     </div>
@@ -88,7 +88,6 @@
             <td>
               <div class="entity-name-cell">
                 <div class="entity-name">{{ publisherName(p) || '-' }}</div>
-                <div class="entity-subtext" *ngIf="p.short_name">{{ p.short_name }}</div>
               </div>
             </td>
             <td>

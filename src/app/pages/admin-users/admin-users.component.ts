@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { NgClass, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
@@ -12,7 +12,7 @@ import { AuthService } from '../../core/services/auth.service';
   templateUrl: './admin-users.component.html',
   styleUrls: ['./admin-users.component.css']
 })
-export class AdminUsersComponent implements OnInit {
+export class AdminUsersComponent implements OnInit, OnDestroy {
   users: any[] = [];
   filtered: any[] = [];
   loading = false;
@@ -42,21 +42,35 @@ export class AdminUsersComponent implements OnInit {
     public auth: AuthService
   ) {}
 
-  ngOnInit() { this.load(); }
+  /** Refreshes the list (silently, no spinner) so online/offline + last-seen stay live. */
+  private presencePollHandle: any = null;
+  private readonly presencePollMs = 20000;
 
-  load() {
-    this.loading = true;
+  ngOnInit() {
+    this.load();
+
+    // Keep the online/offline column live without the user having to
+    // refresh the page — same 20s cadence as the presence heartbeat.
+    this.presencePollHandle = setInterval(() => this.load(true), this.presencePollMs);
+  }
+
+  ngOnDestroy() {
+    if (this.presencePollHandle) clearInterval(this.presencePollHandle);
+  }
+
+  load(silent = false) {
+    if (!silent) this.loading = true;
     this.api.get<any>('/admin/users').subscribe({
       next: r => {
         if (r?.status) {
           this.users = r.data || [];
           this.applyFilter();
-        } else {
+        } else if (!silent) {
           this.toast.error(r?.message || 'Failed to load users');
         }
-        this.loading = false;
+        if (!silent) this.loading = false;
       },
-      error: () => { this.toast.error('Failed to load users'); this.loading = false; }
+      error: () => { if (!silent) { this.toast.error('Failed to load users'); this.loading = false; } }
     });
   }
 
@@ -148,5 +162,50 @@ export class AdminUsersComponent implements OnInit {
   get isAdminOrAbove() {
     const role = this.auth.user?.role;
     return role === 'superadmin' || role === 'admin';
+  }
+
+  // ---- Add User access gate (button stays visible to everyone; the
+  // hover tooltip explains the restriction, this just blocks the click) ----
+  onAddUserClick(event: Event) {
+    if (!this.isSuperadmin) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    this.openAdd();
+  }
+
+  // ============================================================
+  // PRESENCE (online / offline / last seen)
+  // ============================================================
+
+  /** Mirrors the backend's 45s threshold, in case is_online isn't present on an older cached row. */
+  isOnline(u: any): boolean {
+    if (typeof u.is_online === 'boolean') return u.is_online;
+    if (!u.last_seen) return false;
+    const last = new Date(u.last_seen.replace(' ', 'T')).getTime();
+    return (Date.now() - last) <= 45000;
+  }
+
+  /** Human-friendly "last seen" text for offline users. */
+  lastSeenText(u: any): string {
+    if (!u.last_seen) return 'Never logged in';
+    const last = new Date(u.last_seen.replace(' ', 'T')).getTime();
+    const diffSec = Math.max(0, Math.floor((Date.now() - last) / 1000));
+
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 7) return `${diffDay}d ago`;
+
+    const d = new Date(u.last_seen.replace(' ', 'T'));
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  countOnline() {
+    return this.users.filter(u => this.isOnline(u)).length;
   }
 }

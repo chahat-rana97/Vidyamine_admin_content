@@ -1,8 +1,73 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, Directive, ElementRef, Input, SimpleChanges, OnChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { RouterLink, Router } from '@angular/router';
+
+/**
+ * Animates a numeric value counting up from 0 to the target whenever the
+ * bound value changes (including the very first render). Used across the
+ * hero chips, stat cards, and pipeline stages so every number on the
+ * dashboard "counts in" rather than appearing instantly.
+ *
+ * Usage: <span [countUp]="s.value"></span>
+ */
+@Directive({
+  selector: '[countUp]',
+  standalone: true
+})
+export class CountUpDirective implements OnChanges, OnDestroy {
+  @Input('countUp') target: number | string = 0;
+  @Input() countUpDuration = 800; // ms
+  @Input() countUpSuffix = '';
+
+  private rafHandle: number | null = null;
+
+  constructor(private el: ElementRef<HTMLElement>) {}
+
+  ngOnChanges(changes: SimpleChanges) {
+    if ('target' in changes) {
+      this.animate();
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
+  }
+
+  private animate() {
+    const targetNum = Number(this.target);
+    // Non-numeric values (e.g. a string label) just render as-is, no animation.
+    if (isNaN(targetNum)) {
+      this.el.nativeElement.textContent = String(this.target);
+      return;
+    }
+
+    if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
+
+    const start = performance.now();
+    const duration = this.countUpDuration;
+    const from = 0;
+
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / duration);
+      // ease-out cubic — fast start, gentle settle, matches the rest of the UI's easing
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = Math.round(from + (targetNum - from) * eased);
+      this.el.nativeElement.textContent = `${current}${this.countUpSuffix}`;
+
+      if (t < 1) {
+        this.rafHandle = requestAnimationFrame(step);
+      } else {
+        this.el.nativeElement.textContent = `${targetNum}${this.countUpSuffix}`;
+        this.rafHandle = null;
+      }
+    };
+
+    this.rafHandle = requestAnimationFrame(step);
+  }
+}
 
 interface StatCard {
   label: string;
@@ -68,7 +133,7 @@ type TrendRange = '6m' | '12m';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, CountUpDirective],
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.css']
 })
@@ -76,6 +141,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
   loading = true;
   loadError = false;
   today = new Date();
+  now = new Date();
+
+  // ---- live clock (date badge shows time with seconds, ticking every second) ----
+  private clockHandle: any = null;
 
   // ---- restricted-access UI state (e.g. editor role blocked from Admin Users) ----
   showAccessDenied = false;
@@ -90,6 +159,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
   books: any[] = [];
   chapters: any[] = [];
   topics: any[] = [];
+  languages: any[] = [];
+  courseTypes: any[] = [];
 
   // ---- derived view models ----
   stats: StatCard[] = [];
@@ -127,10 +198,26 @@ export class DashboardComponent implements OnInit, OnDestroy {
   notifications: any[] = [];
   loadingNotifications = false;
   markingAllRead = false;
+  private audioUnlocked = false;
+  private unlockAudioHandler = () => {
+    // Play a near-silent blip on the first user interaction so the browser
+    // treats this tab as having user-initiated audio playback. Without this,
+    // the very first real notification sound is often silently blocked.
+    try {
+      const a = new Audio('sounds/notification.mp3');
+      a.volume = 0;
+      a.play().then(() => { this.audioUnlocked = true; }).catch(() => {});
+    } catch {}
+    window.removeEventListener('click', this.unlockAudioHandler);
+    window.removeEventListener('keydown', this.unlockAudioHandler);
+  };
 
   constructor(private api: ApiService, public auth: AuthService, private router: Router) {}
 
   ngOnInit() {
+    window.addEventListener('click', this.unlockAudioHandler);
+    window.addEventListener('keydown', this.unlockAudioHandler);
+    this.startClock();
     this.loadNotifications();
     Promise.all([
       this.api.get<any>('/admin/users').toPromise().catch(() => null),
@@ -141,15 +228,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.api.get<any>('/books').toPromise().catch(() => null),
       this.api.get<any>('/chapters').toPromise().catch(() => null),
       this.api.get<any>('/topics').toPromise().catch(() => null),
-    ]).then(([usersRes, boardsRes, classesRes, subjectsRes, publishersRes, booksRes, chaptersRes, topicsRes]) => {
-      this.users      = usersRes?.data      || [];
-      this.boards     = boardsRes?.data     || [];
-      this.classes    = classesRes?.data    || [];
-      this.subjects   = subjectsRes?.data   || [];
-      this.publishers = publishersRes?.data || [];
-      this.books      = booksRes?.data      || [];
-      this.chapters   = chaptersRes?.data   || [];
-      this.topics     = topicsRes?.data     || [];
+      this.api.get<any>('/languages').toPromise().catch(() => null),
+      this.api.get<any>('/course-types').toPromise().catch(() => null),
+    ]).then(([usersRes, boardsRes, classesRes, subjectsRes, publishersRes, booksRes, chaptersRes, topicsRes, languagesRes, courseTypesRes]) => {
+      this.users        = usersRes?.data        || [];
+      this.boards       = boardsRes?.data       || [];
+      this.classes      = classesRes?.data      || [];
+      this.subjects     = subjectsRes?.data     || [];
+      this.publishers   = publishersRes?.data   || [];
+      this.books        = booksRes?.data        || [];
+      this.chapters     = chaptersRes?.data     || [];
+      this.topics       = topicsRes?.data       || [];
+      this.languages    = languagesRes?.data    || [];
+      this.courseTypes  = courseTypesRes?.data  || [];
 
       this.buildStatCards();
       this.buildFunnel();
@@ -174,6 +265,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Ticks `now` every second so the header clock shows live time with seconds. */
+  private startClock() {
+    this.now = new Date();
+    this.clockHandle = setInterval(() => { this.now = new Date(); }, 1000);
+  }
+
   // API values can come back as numbers or numeric strings depending on the
   // driver/row source (PDO, JSON re-serialisation, etc). Always compare IDs
   // as strings so "6" and 6 are treated as the same board/publisher/etc.
@@ -185,14 +282,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private buildStatCards() {
     const activeBooks = this.books.filter(b => this.truthy(b.is_active)).length;
     const boardsWithBooks = this.boards.filter(bd => this.books.some(b => this.sameId(b.board_id, bd.id))).length;
+    const activeLanguages = this.languages.filter(l => this.truthy(l.is_active)).length;
+    const activeCourseTypes = this.courseTypes.filter(c => this.truthy(c.is_active)).length;
+    const subjectsWithBooks = this.subjects.filter(s => this.books.some(b => this.sameId(b.subject_id, s.id))).length;
 
     this.stats = [
       { label: 'Admin Users', value: this.users.length, sub: `${this.countByRole('superadmin')} superadmin`, route: '/admin-users', accent: 'indigo', icon: 'users', trend: this.growthTrend(this.users) },
       { label: 'Boards', value: this.boards.length, sub: `${boardsWithBooks} with books`, route: '/boards', accent: 'green', icon: 'layers' },
+      { label: 'Classes', value: this.classes.length, sub: `across ${this.boards.length} boards`, route: '/classes', accent: 'sky', icon: 'grid' },
+      { label: 'Subjects', value: this.subjects.length, sub: `${subjectsWithBooks} with books`, route: '/subjects', accent: 'rose', icon: 'book' },
       { label: 'Books', value: this.books.length, sub: `${activeBooks} active`, route: '/books', accent: 'amber', icon: 'book', trend: this.growthTrend(this.books) },
       { label: 'Chapters', value: this.chapters.length, sub: `${this.chaptersVerifiedCount()} verified`, route: '/chapters', accent: 'teal', icon: 'list', trend: this.growthTrend(this.chapters) },
       { label: 'Topics', value: this.topics.length, sub: `${this.totalScreenshots()} screenshots`, route: '/topics', accent: 'violet', icon: 'grid', trend: this.growthTrend(this.topics) },
+      { label: 'Screenshots', value: this.totalScreenshots(), sub: `across ${this.topics.length} topics`, route: '/topics', accent: 'cyan', icon: 'grid' },
       { label: 'Publishers', value: this.publishers.length, sub: `${this.subjects.length} subjects`, route: '/publishers', accent: 'pink', icon: 'building' },
+      { label: 'Languages', value: this.languages.length, sub: `${activeLanguages} active`, route: '/languages', accent: 'lime', icon: 'layers' },
+      { label: 'Course Types', value: this.courseTypes.length, sub: `${activeCourseTypes} active`, route: '/course-types', accent: 'orange', icon: 'building' },
     ];
   }
 
@@ -500,10 +605,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   get activityFeed(): ActivityItem[] {
-    const list = this.activityFilter === 'all'
+    return this.activityFilter === 'all'
       ? this.activityFeedAll
       : this.activityFeedAll.filter(i => i.kind === this.activityFilter);
-    return list.slice(0, 8);
   }
 
   private chaptersVerifiedCount(): number {
@@ -625,40 +729,32 @@ export class DashboardComponent implements OnInit, OnDestroy {
       error: () => { this.loadingNotifications = false; }
     });
 
-    // Poll every 30s so a running dashboard tab picks up new assignments
-    // (and plays the sound) without needing a manual refresh.
+    // Poll every 5s so a running dashboard tab picks up new assignments
+    // (and plays the sound) almost immediately, without needing a manual refresh.
     if (!this.notifPollHandle) {
-      this.notifPollHandle = setInterval(() => this.loadNotifications(), 30000);
+      this.notifPollHandle = setInterval(() => this.loadNotifications(), 5000);
     }
   }
 
   ngOnDestroy() {
     if (this.notifPollHandle) clearInterval(this.notifPollHandle);
+    if (this.clockHandle) clearInterval(this.clockHandle);
+    window.removeEventListener('click', this.unlockAudioHandler);
+    window.removeEventListener('keydown', this.unlockAudioHandler);
   }
 
-  /** Short two-tone beep via Web Audio API — no sound file/asset needed. */
+  /** Plays the notification sound file from src/sounds/notification.mp3 */
   private playNotificationSound() {
     try {
-      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const playTone = (freq: number, start: number, duration: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + duration + 0.02);
-      };
-      playTone(880, 0, 0.12);
-      playTone(1175, 0.13, 0.16);
-    } catch {
-      // Audio not available (e.g. autoplay-blocked before any user interaction) — ignore.
+      const audio = new Audio('sounds/notification.mp3');
+      audio.volume = 0.6;
+      audio.play().catch((err) => {
+        // Most common cause: browser blocked autoplay because the user
+        // hasn't interacted with the page yet since it loaded.
+        console.warn('Notification sound blocked or failed to play:', err);
+      });
+    } catch (err) {
+      console.warn('Notification sound error:', err);
     }
   }
 

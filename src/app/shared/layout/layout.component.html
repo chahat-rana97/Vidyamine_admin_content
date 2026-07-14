@@ -103,6 +103,63 @@
           </span>
         </button>
 
+        <!-- Notification bell -->
+        <div class="notif-bell-wrap" (click)="$event.stopPropagation()">
+          <button
+            class="notif-bell-btn"
+            (click)="toggleNotifPanel($event)"
+            [attr.aria-label]="notif.unreadCount ? notif.unreadCount + ' unread notifications' : 'Notifications'"
+            title="Notifications">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            @if (notif.unreadCount) {
+              <span class="notif-bell-dot"></span>
+            }
+          </button>
+
+          @if (showNotifPanel) {
+            <div class="notif-dropdown" (click)="$event.stopPropagation()">
+              <div class="notif-dropdown-head">
+                <h4>Notifications</h4>
+                @if (notif.unreadCount) {
+                  <button
+                    class="notif-dropdown-mark-all"
+                    [disabled]="notif.markingAllRead"
+                    (click)="notif.markAllRead()">
+                    {{ notif.markingAllRead ? 'Marking…' : 'Mark all as read' }}
+                  </button>
+                }
+              </div>
+
+              <div class="notif-dropdown-list">
+                @if (notif.notifications.length) {
+                  @for (n of notif.notifications.slice(0, 10); track n.id) {
+                    <div
+                      class="notif-dropdown-item"
+                      [class.notif-dropdown-item--unread]="!n.is_read"
+                      (click)="openNotificationTopic(n)">
+                      <span class="notif-dropdown-dot" [class.is-unread]="!n.is_read"></span>
+                      <div class="notif-dropdown-body">
+                        <span class="notif-dropdown-message">{{ n.message }}</span>
+                        <span class="notif-dropdown-time">{{ notif.timeAgo(n.created_at) }}</span>
+                      </div>
+                      @if (n.chapter_id) {
+                        <svg class="notif-dropdown-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+                        </svg>
+                      }
+                    </div>
+                  }
+                } @else {
+                  <div class="notif-dropdown-empty">You're all caught up — no notifications yet.</div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+
         <div class="topbar-user">
           <div class="user-info">
             <span class="user-name">{{ auth.user?.name }}</span>
@@ -153,6 +210,27 @@
         <button class="btn-confirm" (click)="closeAccessDenied()">Okay</button>
       </div>
     </div>
+  </div>
+}
+
+<!-- Instant popup — appears the moment a new notification arrives, regardless of screen -->
+@if (popupNotification) {
+  <div class="notif-popup" (click)="openNotificationTopic(popupNotification, $event)">
+    <span class="notif-popup-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+    </span>
+    <div class="notif-popup-body">
+      <span class="notif-popup-title">New notification</span>
+      <span class="notif-popup-message">{{ popupNotification.message }}</span>
+    </div>
+    <button class="notif-popup-close" (click)="dismissPopup($event)" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
   </div>
 }
 
