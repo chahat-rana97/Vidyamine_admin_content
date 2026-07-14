@@ -24,6 +24,11 @@ export interface AppNotification {
 export class NotificationService implements OnDestroy {
   private readonly POLL_MS = 30000;
 
+  /** Served from src/public/sounds/notification.mp3 (Angular's `public` folder
+   *  is copied to the app's root at build time, so this resolves to
+   *  https://yourapp.com/sounds/notification.mp3 in the browser). */
+  private readonly SOUND_URL = 'sounds/notification.mp3';
+
   notifications: AppNotification[] = [];
   loading = false;
   markingAllRead = false;
@@ -36,6 +41,10 @@ export class NotificationService implements OnDestroy {
   private knownIds = new Set<number>();
   private hasLoadedOnce = false;
   private subscriberCount = 0;
+
+  /** Reused across plays instead of `new Audio()` each time, so rapid-fire
+   *  notifications don't pile up separate audio elements. */
+  private audioEl: HTMLAudioElement | null = null;
 
   constructor(private api: ApiService) {}
 
@@ -126,29 +135,23 @@ export class NotificationService implements OnDestroy {
     return `${months}mo ago`;
   }
 
-  /** Short two-tone beep via Web Audio API — no sound file/asset needed. */
+  /** Plays public/sounds/notification.mp3. Falls back silently if the
+   *  browser blocks autoplay (e.g. no user interaction yet on the page) —
+   *  same "best effort, never throw" spirit as the old tone generator. */
   private playSound() {
     try {
-      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const playTone = (freq: number, start: number, duration: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + duration + 0.02);
-      };
-      playTone(880, 0, 0.12);
-      playTone(1175, 0.13, 0.16);
+      if (!this.audioEl) {
+        this.audioEl = new Audio(this.SOUND_URL);
+        this.audioEl.volume = 0.6;
+      }
+      // Restart from the beginning in case the previous play is still
+      // finishing (e.g. two notifications arrive close together).
+      this.audioEl.currentTime = 0;
+      this.audioEl.play().catch(() => {
+        // Autoplay-blocked or file missing — ignore, same as before.
+      });
     } catch {
-      // Audio not available (e.g. autoplay-blocked before any user interaction) — ignore.
+      // Audio not available — ignore.
     }
   }
 
