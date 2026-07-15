@@ -1,0 +1,148 @@
+<div class="mis-report">
+
+  <div class="mis-tabs">
+    <button class="mis-tab" [class.active]="activeTab === 'claude_ppt'" (click)="setTab('claude_ppt')">
+      Claude PPT
+    </button>
+    <button class="mis-tab" [class.active]="activeTab === 'claude_pdf'" (click)="setTab('claude_pdf')">
+      Claude PDF
+    </button>
+    <button class="mis-tab" [class.active]="activeTab === 'gpt_ppt'" (click)="setTab('gpt_ppt')">
+      ChatGPT PPT
+    </button>
+  </div>
+
+  <div class="mis-toolbar">
+    <select class="mis-select" [(ngModel)]="selectedBoardId" (ngModelChange)="onBoardChange()">
+      <option value="all">All Boards</option>
+      <option *ngFor="let b of boards" [value]="b.id">{{ b.name }}</option>
+    </select>
+
+    <div class="mis-mode-toggle">
+      <button class="mis-mode-btn" [class.active]="level === 'class'" (click)="setLevel('class')">Class</button>
+      <button class="mis-mode-btn" [class.active]="level === 'subject'" (click)="setLevel('subject')">Subject</button>
+      <button class="mis-mode-btn" [class.active]="level === 'book'" (click)="setLevel('book')">Book</button>
+      <button class="mis-mode-btn" [class.active]="level === 'chapter'" (click)="setLevel('chapter')">Chapter</button>
+    </div>
+
+    <div class="mis-class-filter" *ngIf="level === 'subject'">
+      <button class="mis-filter-btn" (click)="toggleClassFilter()">
+        {{ selectedClassCountLabel }}
+        <span class="mis-caret">▾</span>
+      </button>
+
+      <div class="mis-filter-popover" *ngIf="showClassFilter">
+        <div class="mis-filter-actions">
+          <button (click)="selectAllClasses()">Select all</button>
+          <button (click)="clearAllClasses()">Clear</button>
+        </div>
+        <div class="mis-filter-list">
+          <label class="mis-filter-item" *ngFor="let c of classFilterOptions">
+            <input type="checkbox" [checked]="isClassSelected(c.name)" (change)="toggleClassSelection(c.name)" />
+            {{ c.name }}
+          </label>
+        </div>
+        <button class="mis-filter-apply" (click)="applyClassFilter()">Apply</button>
+      </div>
+    </div>
+
+    <ng-container *ngIf="level === 'book' || level === 'chapter'">
+      <select class="mis-select" [(ngModel)]="selectedFilterClassId" (ngModelChange)="onFilterClassChange()">
+        <option value="all">All Classes</option>
+        <option *ngFor="let c of filterClasses" [value]="c.id">{{ c.name }}</option>
+      </select>
+
+      <select class="mis-select" [(ngModel)]="selectedFilterSubjectId" (ngModelChange)="onFilterSubjectChange()">
+        <option value="all">All Subjects</option>
+        <option *ngFor="let s of filterSubjects" [value]="s.id">{{ s.name }}</option>
+      </select>
+    </ng-container>
+
+    <select class="mis-select" *ngIf="level === 'chapter'"
+            [(ngModel)]="selectedFilterBookId" (ngModelChange)="onFilterBookChange()">
+      <option value="all">All Books</option>
+      <option *ngFor="let b of filterBooks" [value]="b.id">{{ b.name }}</option>
+    </select>
+
+    <div class="mis-summary">
+      <span>{{ rows.length }} {{ columnLabelPlural }} shown</span>
+    </div>
+  </div>
+
+  <div class="mis-table-wrap">
+    <table class="mis-table" *ngIf="!loading">
+      <thead>
+        <tr>
+          <th class="mis-th mis-th-label">{{ columnLabel }}</th>
+
+          <th class="mis-th mis-group-head" colspan="3">Production</th>
+          <th class="mis-th">Topics</th>
+          <th class="mis-th">Screenshots</th>
+
+          <th class="mis-th" [class.mis-tab-active-col]="activeTab === 'claude_ppt'">Claude PPT</th>
+          <th class="mis-th" [class.mis-tab-active-col]="activeTab === 'claude_pdf'">Claude PDF</th>
+          <th class="mis-th" [class.mis-tab-active-col]="activeTab === 'gpt_ppt'">ChatGPT PPT</th>
+
+          <th class="mis-th mis-group-head" colspan="3">YouTube</th>
+        </tr>
+        <tr class="mis-subhead-row">
+          <th class="mis-th mis-th-label"></th>
+          <th class="mis-th mis-subhead">Script</th>
+          <th class="mis-th mis-subhead">Quiz</th>
+          <th class="mis-th mis-subhead">Exercise</th>
+          <th class="mis-th"></th>
+          <th class="mis-th"></th>
+          <th class="mis-th"></th>
+          <th class="mis-th"></th>
+          <th class="mis-th"></th>
+          <th class="mis-th mis-subhead">Description</th>
+          <th class="mis-th mis-subhead">Thumbnail</th>
+          <th class="mis-th mis-subhead">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="mis-row" *ngFor="let row of rows">
+          <td class="mis-td mis-td-label">{{ row.label }}</td>
+
+          <td class="mis-td mis-na">NA</td>
+          <td class="mis-td mis-na">NA</td>
+          <td class="mis-td mis-na">NA</td>
+
+          <td class="mis-td mis-count">{{ row.topics }}</td>
+          <td class="mis-td mis-count">{{ row.screenshots }}</td>
+
+          <td class="mis-td mis-count" [class.mis-tab-active-col]="activeTab === 'claude_ppt'">{{ row.claude_ppt }}</td>
+          <td class="mis-td mis-count" [class.mis-tab-active-col]="activeTab === 'claude_pdf'">{{ row.claude_pdf }}</td>
+          <td class="mis-td mis-count" [class.mis-tab-active-col]="activeTab === 'gpt_ppt'">{{ row.gpt_ppt }}</td>
+
+          <td class="mis-td mis-na">NA</td>
+          <td class="mis-td mis-na">NA</td>
+          <td class="mis-td mis-na">NA</td>
+        </tr>
+
+        <tr *ngIf="rows.length === 0">
+          <td class="mis-td mis-empty" colspan="12">No data for this selection.</td>
+        </tr>
+      </tbody>
+      <tfoot *ngIf="rows.length > 0">
+        <tr class="mis-total-row">
+          <td class="mis-td mis-td-label">Total</td>
+          <td class="mis-td mis-na">—</td>
+          <td class="mis-td mis-na">—</td>
+          <td class="mis-td mis-na">—</td>
+          <td class="mis-td mis-count">{{ totalTopics }}</td>
+          <td class="mis-td mis-count">{{ totalScreenshots }}</td>
+          <td class="mis-td mis-count">{{ totalClaudePpt }}</td>
+          <td class="mis-td mis-count">{{ totalClaudePdf }}</td>
+          <td class="mis-td mis-count">{{ totalGptPpt }}</td>
+          <td class="mis-td mis-na">—</td>
+          <td class="mis-td mis-na">—</td>
+          <td class="mis-td mis-na">—</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="mis-loading" *ngIf="loading">Loading report…</div>
+  </div>
+
+</div>

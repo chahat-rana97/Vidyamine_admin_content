@@ -33,6 +33,7 @@ export const routes: Routes = [
       { path: 'reports/chapter-coverage', loadComponent: () => import('./pages/chapter-coverage-report/chapter-coverage-report.component').then(m => m.ChapterCoverageReportComponent) },
       { path: 'reports/chapters/:id', loadComponent: () => import('./pages/chapter-report/chapter-report.component').then(m => m.ChapterReportComponent) },
       { path: 'reports/assignments', loadComponent: () => import('./pages/assignment-report/assignment-report.component').then(m => m.AssignmentReportComponent) },
+      { path: 'reports/mis', loadComponent: () => import('./pages/mis-report/mis-report.component').then(m => m.MisReportComponent) },
     ]
   },
   { path: '**', redirectTo: 'dashboard' }

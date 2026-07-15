@@ -1,0 +1,270 @@
+.mis-report {
+  --bg: #0b0e17;
+  --panel: #111524;
+  --panel2: #151a2c;
+  --panel3: #1a2038;
+  --line: #242c45;
+  --line2: #2f3a5c;
+  --ink: #e6e9f5;
+  --mut: #8b93b0;
+  --green: #22c55e;
+  --red: #f87171;
+  --amber: #f59e0b;
+  --indigo: #6366f1;
+  --teal: #2dd4bf;
+
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  padding: 16px 20px 32px;
+}
+
+/* ---- tabs ---- */
+.mis-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mis-tab {
+  padding: 8px 18px;
+  border-radius: 9px;
+  border: 1px solid var(--line2);
+  background: var(--panel2);
+  color: var(--mut);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mis-tab.active {
+  background: var(--indigo);
+  border-color: var(--indigo);
+  color: #fff;
+}
+
+/* ---- toolbar ---- */
+.mis-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.mis-select {
+  background: var(--panel2);
+  border: 1px solid var(--line2);
+  color: var(--ink);
+  border-radius: 9px;
+  padding: 7px 12px;
+  font-size: 13px;
+  min-width: 150px;
+}
+
+.mis-mode-toggle {
+  display: flex;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.mis-mode-btn {
+  padding: 7px 16px;
+  background: var(--panel2);
+  color: var(--mut);
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mis-mode-btn.active {
+  background: var(--indigo);
+  color: #fff;
+}
+
+.mis-class-filter {
+  position: relative;
+}
+
+.mis-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  border: 1px solid var(--line2);
+  background: var(--panel2);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mis-caret {
+  font-size: 10px;
+  color: var(--mut);
+}
+
+.mis-filter-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: 220px;
+  background: var(--panel3);
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.mis-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mis-filter-actions button {
+  flex: 1;
+  padding: 5px;
+  border-radius: 7px;
+  border: 1px solid var(--line2);
+  background: var(--panel2);
+  color: var(--ink);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.mis-filter-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.mis-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.mis-filter-apply {
+  width: 100%;
+  padding: 7px;
+  border-radius: 8px;
+  border: none;
+  background: var(--indigo);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mis-summary {
+  margin-left: auto;
+  color: var(--mut);
+  font-size: 12.5px;
+}
+
+/* ---- table ---- */
+.mis-table-wrap {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+
+.mis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.mis-th {
+  text-align: center;
+  padding: 10px 12px;
+  color: var(--mut);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.mis-th-label {
+  text-align: left;
+  min-width: 120px;
+}
+
+.mis-group-head {
+  border-left: 1px solid var(--line);
+}
+
+.mis-subhead-row .mis-th {
+  border-bottom: 1px solid var(--line);
+  padding-top: 6px;
+  padding-bottom: 8px;
+  font-size: 10px;
+}
+
+.mis-td {
+  text-align: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.mis-td-label {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.mis-na {
+  color: var(--red);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+.mis-count {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mis-tab-active-col {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--teal);
+}
+
+.mis-row:hover {
+  background: var(--panel2);
+}
+
+.mis-total-row {
+  background: var(--panel2);
+}
+
+.mis-total-row .mis-td {
+  border-bottom: none;
+  border-top: 1px solid var(--line2);
+}
+
+.mis-empty {
+  text-align: center;
+  color: var(--mut);
+  padding: 32px;
+}
+
+.mis-loading {
+  text-align: center;
+  color: var(--mut);
+  padding: 40px;
+  font-size: 13px;
+}

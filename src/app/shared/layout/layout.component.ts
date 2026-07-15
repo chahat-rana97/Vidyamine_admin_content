@@ -75,6 +75,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Content Report', icon: 'icon-reports', route: '/reports/content', restrictedRoles: ['editor'] },
         { label: 'Assignment Report', icon: 'icon-reports', route: '/reports/assignments', restrictedRoles: ['editor', 'admin'] },
         { label: 'Chapter Report', icon: 'icon-reports', route: '/reports/chapter-coverage' },
+        { label: 'MIS Report', icon: 'icon-reports', route: '/reports/mis' },
       ]
     }
   ];
