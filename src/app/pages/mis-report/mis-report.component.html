@@ -1,68 +1,101 @@
 <div class="mis-report">
 
-  <div class="mis-tabs">
-    <button class="mis-tab" [class.active]="activeTab === 'claude_ppt'" (click)="setTab('claude_ppt')">
-      Claude PPT
-    </button>
-    <button class="mis-tab" [class.active]="activeTab === 'claude_pdf'" (click)="setTab('claude_pdf')">
-      Claude PDF
-    </button>
-    <button class="mis-tab" [class.active]="activeTab === 'gpt_ppt'" (click)="setTab('gpt_ppt')">
-      ChatGPT PPT
-    </button>
+  <!-- ---- stat chips: quick-glance totals for the current filter selection ---- -->
+  <div class="mis-stats">
+    <div class="mis-stat-card mis-stat-topics">
+      <div class="mis-stat-label">Topics</div>
+      <div class="mis-stat-value">{{ totalTopics }}</div>
+      <div class="mis-stat-sub">{{ totalScreenshots }} screenshots</div>
+    </div>
+    <div class="mis-stat-card mis-stat-screenshots">
+      <div class="mis-stat-label">Screenshots</div>
+      <div class="mis-stat-value">{{ totalScreenshots }}</div>
+      <div class="mis-stat-sub">across {{ totalTopics }} topics</div>
+    </div>
+    <div class="mis-stat-card mis-stat-claude-ppt">
+      <div class="mis-stat-label">Claude PPT</div>
+      <div class="mis-stat-value">{{ totalClaudePpt }}</div>
+      <div class="mis-stat-sub">of {{ totalTopics }} topics</div>
+    </div>
+    <div class="mis-stat-card mis-stat-claude-pdf">
+      <div class="mis-stat-label">Claude PDF</div>
+      <div class="mis-stat-value">{{ totalClaudePdf }}</div>
+      <div class="mis-stat-sub">of {{ totalTopics }} topics</div>
+    </div>
+    <div class="mis-stat-card mis-stat-gpt-ppt">
+      <div class="mis-stat-label">ChatGPT PPT</div>
+      <div class="mis-stat-value">{{ totalGptPpt }}</div>
+      <div class="mis-stat-sub">of {{ totalTopics }} topics</div>
+    </div>
+  </div>
+
+  <!-- Claude PPT / Claude PDF / ChatGPT PPT tabs removed — they only controlled a column
+       highlight, nothing else. Class/Subject/Book/Chapter level tabs live here now, each
+       tinted its own color, with no outer box around the group. "Has Data" filter is
+       pushed to the far right of this row, roughly under the Claude PDF / ChatGPT PPT
+       table columns. -->
+  <div class="mis-tabs-row">
+    <div class="mis-tabs">
+      <button class="mis-tab mis-tab-class" [class.active]="level === 'class'" (click)="setLevel('class')">Class</button>
+      <button class="mis-tab mis-tab-subject" [class.active]="level === 'subject'" (click)="setLevel('subject')">Subject</button>
+      <button class="mis-tab mis-tab-book" [class.active]="level === 'book'" (click)="setLevel('book')">Book</button>
+      <button class="mis-tab mis-tab-chapter" [class.active]="level === 'chapter'" (click)="setLevel('chapter')">Chapter</button>
+    </div>
+
+    <div class="mis-has-data-group">
+      <span class="mis-field-label">Has Data</span>
+      <select class="mis-select mis-has-data-select" [(ngModel)]="hasDataFilter" (ngModelChange)="onHasDataFilterChange()">
+        <option *ngFor="let o of hasDataOptions" [value]="o.value">{{ o.label }}</option>
+      </select>
+    </div>
   </div>
 
   <div class="mis-toolbar">
-    <select class="mis-select" [(ngModel)]="selectedBoardId" (ngModelChange)="onBoardChange()">
-      <option value="all">All Boards</option>
-      <option *ngFor="let b of boards" [value]="b.id">{{ b.name }}</option>
-    </select>
-
-    <div class="mis-mode-toggle">
-      <button class="mis-mode-btn" [class.active]="level === 'class'" (click)="setLevel('class')">Class</button>
-      <button class="mis-mode-btn" [class.active]="level === 'subject'" (click)="setLevel('subject')">Subject</button>
-      <button class="mis-mode-btn" [class.active]="level === 'book'" (click)="setLevel('book')">Book</button>
-      <button class="mis-mode-btn" [class.active]="level === 'chapter'" (click)="setLevel('chapter')">Chapter</button>
+    <div class="mis-field">
+      <span class="mis-field-label">Board</span>
+      <select class="mis-select" [(ngModel)]="selectedBoardId" (ngModelChange)="onBoardChange()">
+        <option value="all">All Boards</option>
+        <option *ngFor="let b of boards" [value]="b.id">{{ b.name }}</option>
+      </select>
     </div>
 
-    <div class="mis-class-filter" *ngIf="level === 'subject'">
-      <button class="mis-filter-btn" (click)="toggleClassFilter()">
-        {{ selectedClassCountLabel }}
-        <span class="mis-caret">▾</span>
-      </button>
-
-      <div class="mis-filter-popover" *ngIf="showClassFilter">
-        <div class="mis-filter-actions">
-          <button (click)="selectAllClasses()">Select all</button>
-          <button (click)="clearAllClasses()">Clear</button>
-        </div>
-        <div class="mis-filter-list">
-          <label class="mis-filter-item" *ngFor="let c of classFilterOptions">
-            <input type="checkbox" [checked]="isClassSelected(c.name)" (change)="toggleClassSelection(c.name)" />
-            {{ c.name }}
-          </label>
-        </div>
-        <button class="mis-filter-apply" (click)="applyClassFilter()">Apply</button>
-      </div>
+    <!-- Class/Subject/Book: locked (disabled + tooltip) until the matching tab, or a
+         deeper one, is selected above. Chapter dropdown removed entirely — Chapter tab
+         is just the deepest row-level view, filtered as far down as Book.
+         Options are deduped by name (see groupByName in the .ts) so "Class 6" shows
+         once even if it exists under several boards when "All Boards" is selected. -->
+    <div class="mis-field">
+      <span class="mis-field-label">Class</span>
+      <span class="mis-select-lock-wrap" [title]="isClassFilterLocked() ? lockedFilterMessage() : null">
+        <select class="mis-select" [disabled]="isClassFilterLocked()"
+                [(ngModel)]="selectedClassName" (ngModelChange)="onClassChange()">
+          <option value="all">All Classes</option>
+          <option *ngFor="let c of classOptions" [value]="c.name">{{ c.name }}</option>
+        </select>
+      </span>
     </div>
 
-    <ng-container *ngIf="level === 'book' || level === 'chapter'">
-      <select class="mis-select" [(ngModel)]="selectedFilterClassId" (ngModelChange)="onFilterClassChange()">
-        <option value="all">All Classes</option>
-        <option *ngFor="let c of filterClasses" [value]="c.id">{{ c.name }}</option>
-      </select>
+    <div class="mis-field">
+      <span class="mis-field-label">Subject</span>
+      <span class="mis-select-lock-wrap" [title]="isSubjectFilterLocked() ? lockedFilterMessage() : null">
+        <select class="mis-select" [disabled]="isSubjectFilterLocked()"
+                [(ngModel)]="selectedSubjectName" (ngModelChange)="onSubjectChange()">
+          <option value="all">All Subjects</option>
+          <option *ngFor="let s of subjectOptions" [value]="s.name">{{ s.name }}</option>
+        </select>
+      </span>
+    </div>
 
-      <select class="mis-select" [(ngModel)]="selectedFilterSubjectId" (ngModelChange)="onFilterSubjectChange()">
-        <option value="all">All Subjects</option>
-        <option *ngFor="let s of filterSubjects" [value]="s.id">{{ s.name }}</option>
-      </select>
-    </ng-container>
-
-    <select class="mis-select" *ngIf="level === 'chapter'"
-            [(ngModel)]="selectedFilterBookId" (ngModelChange)="onFilterBookChange()">
-      <option value="all">All Books</option>
-      <option *ngFor="let b of filterBooks" [value]="b.id">{{ b.name }}</option>
-    </select>
+    <div class="mis-field">
+      <span class="mis-field-label">Book</span>
+      <span class="mis-select-lock-wrap" [title]="isBookFilterLocked() ? lockedFilterMessage() : null">
+        <select class="mis-select" [disabled]="isBookFilterLocked()"
+                [(ngModel)]="selectedBookName" (ngModelChange)="onBookChange()">
+          <option value="all">All Books</option>
+          <option *ngFor="let b of bookOptions" [value]="b.name">{{ b.name }}</option>
+        </select>
+      </span>
+    </div>
 
     <div class="mis-summary">
       <span>{{ rows.length }} {{ columnLabelPlural }} shown</span>
@@ -79,9 +112,9 @@
           <th class="mis-th">Topics</th>
           <th class="mis-th">Screenshots</th>
 
-          <th class="mis-th" [class.mis-tab-active-col]="activeTab === 'claude_ppt'">Claude PPT</th>
-          <th class="mis-th" [class.mis-tab-active-col]="activeTab === 'claude_pdf'">Claude PDF</th>
-          <th class="mis-th" [class.mis-tab-active-col]="activeTab === 'gpt_ppt'">ChatGPT PPT</th>
+          <th class="mis-th" [class.mis-tab-active-col]="highlightedColumn === 'claude_ppt'">Claude PPT</th>
+          <th class="mis-th" [class.mis-tab-active-col]="highlightedColumn === 'claude_pdf'">Claude PDF</th>
+          <th class="mis-th" [class.mis-tab-active-col]="highlightedColumn === 'gpt_ppt'">ChatGPT PPT</th>
 
           <th class="mis-th mis-group-head" colspan="3">YouTube</th>
         </tr>
@@ -111,9 +144,9 @@
           <td class="mis-td mis-count">{{ row.topics }}</td>
           <td class="mis-td mis-count">{{ row.screenshots }}</td>
 
-          <td class="mis-td mis-count" [class.mis-tab-active-col]="activeTab === 'claude_ppt'">{{ row.claude_ppt }}</td>
-          <td class="mis-td mis-count" [class.mis-tab-active-col]="activeTab === 'claude_pdf'">{{ row.claude_pdf }}</td>
-          <td class="mis-td mis-count" [class.mis-tab-active-col]="activeTab === 'gpt_ppt'">{{ row.gpt_ppt }}</td>
+          <td class="mis-td mis-count" [class.mis-tab-active-col]="highlightedColumn === 'claude_ppt'">{{ row.claude_ppt }}</td>
+          <td class="mis-td mis-count" [class.mis-tab-active-col]="highlightedColumn === 'claude_pdf'">{{ row.claude_pdf }}</td>
+          <td class="mis-td mis-count" [class.mis-tab-active-col]="highlightedColumn === 'gpt_ppt'">{{ row.gpt_ppt }}</td>
 
           <td class="mis-td mis-na">NA</td>
           <td class="mis-td mis-na">NA</td>

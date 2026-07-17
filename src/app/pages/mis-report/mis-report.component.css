@@ -13,42 +13,169 @@
   --indigo: #6366f1;
   --teal: #2dd4bf;
 
+  /* per-metric accent colors, reused by stat cards + tab tints */
+  --c-topics: #6366f1;
+  --c-screenshots: #06b6d4;
+  --c-claude-ppt: #f59e0b;
+  --c-claude-pdf: #22c55e;
+  --c-gpt-ppt: #ec4899;
+
+  --c-class: #6366f1;
+  --c-subject: #06b6d4;
+  --c-book: #f59e0b;
+  --c-chapter: #a855f7;
+
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--ink);
   padding: 16px 20px 32px;
 }
 
-/* ---- tabs ---- */
+/* ---- stat chips ---- */
+.mis-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.mis-stat-card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  overflow: hidden;
+}
+
+.mis-stat-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--accent);
+}
+
+.mis-stat-topics { --accent: var(--c-topics); }
+.mis-stat-screenshots { --accent: var(--c-screenshots); }
+.mis-stat-claude-ppt { --accent: var(--c-claude-ppt); }
+.mis-stat-claude-pdf { --accent: var(--c-claude-pdf); }
+.mis-stat-gpt-ppt { --accent: var(--c-gpt-ppt); }
+
+.mis-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.mis-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.mis-stat-sub {
+  font-size: 11.5px;
+  color: var(--mut);
+}
+
+/* ---- tabs row: level tabs on the left, "Has Data" filter pushed to the far right,
+   roughly under the Claude PDF / ChatGPT PPT table columns ---- */
+.mis-tabs-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.mis-has-data-group {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mis-has-data-select {
+  min-width: 170px;
+}
+
+/* ---- tabs: no outer box/border around the group, just individual pill buttons ---- */
 .mis-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .mis-tab {
-  padding: 8px 18px;
+  padding: 9px 20px;
   border-radius: 9px;
-  border: 1px solid var(--line2);
+  border: 1px solid transparent;
   background: var(--panel2);
   color: var(--mut);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.mis-tab.active {
-  background: var(--indigo);
-  border-color: var(--indigo);
+.mis-tab:hover {
+  color: var(--ink);
+  background: var(--panel3);
+}
+
+.mis-tab-class.active {
+  background: var(--c-class);
+  border-color: var(--c-class);
+  color: #fff;
+}
+
+.mis-tab-subject.active {
+  background: var(--c-subject);
+  border-color: var(--c-subject);
+  color: #06222a;
+}
+
+.mis-tab-book.active {
+  background: var(--c-book);
+  border-color: var(--c-book);
+  color: #2a1a02;
+}
+
+.mis-tab-chapter.active {
+  background: var(--c-chapter);
+  border-color: var(--c-chapter);
   color: #fff;
 }
 
 /* ---- toolbar ---- */
 .mis-toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 16px;
+}
+
+/* Wraps a select together with its label above it, so each filter reads like
+   "BOARD" / "CLASS" / etc. sitting on top of its dropdown. */
+.mis-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mis-field-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mut);
+  padding-left: 2px;
 }
 
 .mis-select {
@@ -59,117 +186,34 @@
   padding: 7px 12px;
   font-size: 13px;
   min-width: 150px;
+  transition: border-color 0.15s ease;
 }
 
-.mis-mode-toggle {
-  display: flex;
-  border: 1px solid var(--line2);
-  border-radius: 9px;
-  overflow: hidden;
+.mis-select:hover:not(:disabled) {
+  border-color: var(--indigo);
 }
 
-.mis-mode-btn {
-  padding: 7px 16px;
-  background: var(--panel2);
-  color: var(--mut);
-  border: none;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+.mis-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--panel);
 }
 
-.mis-mode-btn.active {
-  background: var(--indigo);
-  color: #fff;
+/* Wraps a locked select so the "Select X first" tooltip shows even though the
+   disabled <select> itself won't fire hover/click events. */
+.mis-select-lock-wrap {
+  display: inline-block;
 }
 
-.mis-class-filter {
-  position: relative;
-}
-
-.mis-filter-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 13px;
-  border-radius: 9px;
-  border: 1px solid var(--line2);
-  background: var(--panel2);
-  color: var(--ink);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.mis-caret {
-  font-size: 10px;
-  color: var(--mut);
-}
-
-.mis-filter-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 20;
-  width: 220px;
-  background: var(--panel3);
-  border: 1px solid var(--line2);
-  border-radius: 10px;
-  padding: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-}
-
-.mis-filter-actions {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.mis-filter-actions button {
-  flex: 1;
-  padding: 5px;
-  border-radius: 7px;
-  border: 1px solid var(--line2);
-  background: var(--panel2);
-  color: var(--ink);
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.mis-filter-list {
-  max-height: 220px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.mis-filter-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  padding: 4px 2px;
-  cursor: pointer;
-}
-
-.mis-filter-apply {
-  width: 100%;
-  padding: 7px;
-  border-radius: 8px;
-  border: none;
-  background: var(--indigo);
-  color: #fff;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
+.mis-select-lock-wrap:has(select:disabled) {
+  cursor: not-allowed;
 }
 
 .mis-summary {
   margin-left: auto;
   color: var(--mut);
   font-size: 12.5px;
+  align-self: center;
 }
 
 /* ---- table ---- */
@@ -267,4 +311,17 @@
   color: var(--mut);
   padding: 40px;
   font-size: 13px;
+}
+
+/* ---- responsive ---- */
+@media (max-width: 900px) {
+  .mis-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .mis-stats {
+    grid-template-columns: 1fr;
+  }
 }

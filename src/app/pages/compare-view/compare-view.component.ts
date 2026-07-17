@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, AfterViewInit, ElementRef, ViewChild, HostListener, Directive, Input, Output, EventEmitter } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ElementRef, ViewChild, HostListener, Directive, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -7,6 +7,7 @@ import { jsPDF } from 'jspdf';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
+import { SpeechToTextService } from './speech-to-text.service';
 
 // pdfjs needs its worker script location set once, at module load. The file
 // is copied into /public/assets/pdf.worker.min.mjs at build time and must be
@@ -22,7 +23,17 @@ import { AuthService } from '../../core/services/auth.service';
 // Angular writes the deployed base path into <base href> at build time
 // (via --base-href / angular.json), so reading it here keeps this correct
 // in every environment without needing an environment-specific constant.
+// Base href for resolving static assets relative to the deployed app root.
+// Handles subpath deployments (e.g. GitHub Pages, Firebase subpaths) correctly.
 const cvBaseHref = (document.querySelector('base')?.getAttribute('href') || '/').replace(/\/$/, '');
+
+// Point pdfjs at the worker file we copied from node_modules/pdfjs-dist/build/
+// into public/assets/ — this must be the SAME pdfjs-dist version as the npm
+// package (run `cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/assets/`
+// whenever the pdfjs-dist version is upgraded).
+// We use the static asset path here (not new URL()) because new URL() resolves
+// relative to the chunk file location in production, not the public assets root,
+// causing a 404 on deployed Firebase/GitHub Pages environments.
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc = `${cvBaseHref}/assets/pdf.worker.min.mjs`;
 
 /**
@@ -110,6 +121,17 @@ export const STICKY_COLOR_PRESETS: { name: string; box: string; text: string }[]
   { name: 'Violet',  box: '#8b5cf6', text: '#ffffff' },
   { name: 'Slate',   box: '#64748b', text: '#ffffff' }
 ];
+
+/** How comments are visually rendered on top of every page/slide/screenshot at once. Chosen from a single toolbar dropdown and applied everywhere (both panes). 'margin' (margin notes) intentionally omitted. */
+export type CommentDisplayMode = 'below' | 'callout' | 'pins' | 'highlight' | 'sticky' | 'hidden';
+export const COMMENT_DISPLAY_MODE_LABEL: Record<CommentDisplayMode, string> = {
+  below: '▤ Below slide',
+  callout: '▦ On-slide callouts',
+  pins: '📍 Pins only',
+  highlight: '▭ Highlight band',
+  sticky: '🗒 Sticky-note',
+  hidden: '∅ Hidden'
+};
 
 /** One renderable "page" inside a pane, regardless of source type. */
 interface PaneItem {
@@ -214,6 +236,8 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   readonly DOC_LABEL = COMPARE_DOC_LABEL;
   readonly STICKY_PRESETS = STICKY_COLOR_PRESETS;
+  readonly COMMENT_DISPLAY_MODE_LABEL = COMMENT_DISPLAY_MODE_LABEL;
+  readonly COMMENT_DISPLAY_MODES: CommentDisplayMode[] = ['below', 'callout', 'pins', 'highlight', 'sticky', 'hidden'];
   /** Fallback box color (hex) used when a sticky note has no box_color saved yet, and as the starting point when opening the color editor for the first time on a note. */
   readonly DEFAULT_STICKY_BOX_HEX = '#f59e0b';
   readonly DEFAULT_STICKY_TEXT_HEX = '#1f2430';
@@ -244,11 +268,191 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   newCommentText = '';
   activePaneSide: 'left' | 'right' = 'left';
 
+  /** How comments render on top of every page/slide/screenshot (both panes at once). Purely a view setting — not persisted server-side. */
+  commentDisplayMode: CommentDisplayMode = 'below';
+
+  setCommentDisplayMode(mode: CommentDisplayMode) {
+    this.commentDisplayMode = mode;
+  }
+
+  // ============================================================
+  // ON-SLIDE COMMENT DISPLAY COLORS (callout / pin / sticky / highlight)
+  // Purely a view setting, like commentDisplayMode — not persisted
+  // server-side. One color choice (a named preset or a custom pick)
+  // drives everything: the pin dot, the card/band background+border,
+  // and the text color is auto-picked (light or dark) for contrast
+  // against that background so it always stays readable.
+  // ============================================================
+
+  /** Curated combinations: one accent color -> matching card background, border, and readable text color. */
+  readonly CD_COLOR_PRESETS: { name: string; accent: string; card: string; border: string; text: string }[] = [
+    { name: 'Indigo',  accent: '#6366f1', card: '#6366f1', border: '#6366f1', text: '#ffffff' },
+    { name: 'Amber',   accent: '#f59e0b', card: '#f59e0b', border: '#f59e0b', text: '#1f2430' },
+    { name: 'Rose',    accent: '#f43f5e', card: '#f43f5e', border: '#f43f5e', text: '#ffffff' },
+    { name: 'Emerald', accent: '#22c55e', card: '#22c55e', border: '#22c55e', text: '#0d2617' },
+    { name: 'Sky',     accent: '#0ea5e9', card: '#0ea5e9', border: '#0ea5e9', text: '#ffffff' },
+    { name: 'Violet',  accent: '#8b5cf6', card: '#8b5cf6', border: '#8b5cf6', text: '#ffffff' },
+    { name: 'Slate',   accent: '#64748b', card: '#64748b', border: '#64748b', text: '#ffffff' },
+    { name: 'Brick',   accent: '#c2410c', card: '#c2410c', border: '#c2410c', text: '#ffffff' },
+  ];
+
+  readonly DEFAULT_CD_THEME = this.CD_COLOR_PRESETS[0];
+  /** 0 = solid … 7 = almost invisible card background. */
+  readonly CD_ALPHA_STEPS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.15, 0.07];
+  readonly CD_ALPHA_LABELS = ['Solid', 'See-through 1', 'See-through 2', 'See-through 3', 'See-through 4', 'Very high', 'Extreme', 'Max (ghost)'];
+
+  /** Name of the currently-applied preset, or null when a custom color is in use. */
+  cdThemeName: string | null = this.DEFAULT_CD_THEME.name;
+  cdPinColor = this.DEFAULT_CD_THEME.accent;
+  cdCardColor = this.DEFAULT_CD_THEME.card;
+  cdBorderColor = this.DEFAULT_CD_THEME.border;
+  cdTextColor = this.DEFAULT_CD_THEME.text;
+  cdAlphaLevel = 4;
+  /** Whether the colour theme popover is open in the toolbar. */
+  cdColorPickerOpen = false;
+
+  toggleCdColorPicker(evt?: Event) {
+    evt?.stopPropagation();
+    this.cdColorPickerOpen = !this.cdColorPickerOpen;
+  }
+
+  closeCdColorPicker() {
+    this.cdColorPickerOpen = false;
+  }
+
+  setCdAlphaLevel(level: number | string) {
+    this.cdAlphaLevel = Math.max(0, Math.min(7, Number(level)));
+  }
+
+  /** Applies a curated preset — one click sets pin, card, border and readable text together. */
+  applyCdColorPreset(p: { name: string; accent: string; card: string; border: string; text: string }) {
+    this.cdThemeName = p.name;
+    this.cdPinColor = p.accent;
+    this.cdCardColor = p.card;
+    this.cdBorderColor = p.border;
+    this.cdTextColor = p.text;
+  }
+
+  /** Applies a custom hex color to pin/card/border together, auto-picking a readable text color (black or white) based on contrast. */
+  applyCdCustomColor(hex: string) {
+    this.cdThemeName = null;
+    this.cdPinColor = hex;
+    this.cdCardColor = hex;
+    this.cdBorderColor = hex;
+    this.cdTextColor = this.readableTextColor(hex);
+  }
+
+  resetCdColors() {
+    this.applyCdColorPreset(this.DEFAULT_CD_THEME);
+    this.cdAlphaLevel = 4;
+  }
+
+  /** Card/band background as an rgba string combining cdCardColor + the current see-through level. */
+  get cdCardBackground(): string {
+    return this.hexToRgba(this.cdCardColor, this.CD_ALPHA_STEPS[this.cdAlphaLevel] ?? 1);
+  }
+
+  /** Picks black or white text for readable contrast against a given hex background, using the standard YIQ brightness formula. */
+  private readableTextColor(hex: string): string {
+    const h = hex.replace('#', '');
+    const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+    const r = parseInt(full.substring(0, 2), 16) || 0;
+    const g = parseInt(full.substring(2, 4), 16) || 0;
+    const b = parseInt(full.substring(4, 6), 16) || 0;
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    return yiq >= 150 ? '#1f2430' : '#ffffff';
+  }
+
   /** Which single page/slide/screenshot currently has its comment box open — accordion-style, one at a time. */
   openBox: { side: 'left' | 'right'; index: number } | null = null;
   /** id of the comment currently being edited inline inside its attached box, if any. */
   editingCommentId: number | null = null;
   editingText = '';
+
+  // ============================================================
+  // COMMENT POPUP CARD ("💬 Comment" button on a slide)
+  // Small floating card, not attached to a footer box and not placed
+  // anywhere specific on the slide — just types text and posts a
+  // general (unpinned) comment for that item, same as before but via
+  // a compact modal instead of an inline footer compose box.
+  // ============================================================
+
+  /** Which item currently has the "add comment" popup card open. */
+  commentCardFor: { side: 'left' | 'right'; index: number } | null = null;
+  commentCardText = '';
+
+  isCommentCardOpen(side: 'left' | 'right', index: number): boolean {
+    return !!this.commentCardFor && this.commentCardFor.side === side && this.commentCardFor.index === index;
+  }
+
+  /** Opens the small "add comment" popup card for one item. Disabled/no-op on a finalized item (locked). */
+  openCommentCard(side: 'left' | 'right', index: number, evt?: Event) {
+    evt?.stopPropagation();
+    if (this.isFinal(side, index)) return;
+    this.commentCardFor = { side, index };
+    this.commentCardText = '';
+    this.activePaneSide = side;
+  }
+
+  closeCommentCard() {
+    if (this.speech.isListening) this.speech.stop();
+    this.commentCardFor = null;
+    this.commentCardText = '';
+  }
+
+  /** Base text captured before the current dictation session started, so
+   *  interim (non-final) speech results can be previewed without duplicating
+   *  already-committed text on each onresult tick. */
+  private commentCardTextBeforeDictation = '';
+
+  /** Toggles mic dictation into the comment card's textarea (Chrome/Edge only). */
+  toggleCommentCardMic() {
+    if (this.speech.isListening) {
+      this.speech.stop();
+      return;
+    }
+    this.commentCardTextBeforeDictation = this.commentCardText ? this.commentCardText + ' ' : '';
+    this.speech.start(
+      (text, isFinal) => {
+        if (isFinal) {
+          this.commentCardTextBeforeDictation += text + ' ';
+          this.commentCardText = this.commentCardTextBeforeDictation;
+        } else {
+          this.commentCardText = this.commentCardTextBeforeDictation + text;
+        }
+      }
+    );
+  }
+
+  /** Posts the popup card's text as a new general comment on the item, then closes the card. */
+  submitCommentCard() {
+    if (this.speech.isListening) this.speech.stop();
+    if (!this.commentCardFor) return;
+    const { side, index } = this.commentCardFor;
+    const text = this.commentCardText.trim();
+    if (!text || !this.topicId) return;
+    const pane = this.paneOf(side);
+    const pageKey = pane.items[index]?.pageKey;
+    if (!pane.docType || !pageKey) return;
+
+    const body: any = {
+      doc_type: this.paneDocTypeKey(pane),
+      page_key: pageKey,
+      text
+    };
+
+    this.api.post<any>(`/topics/${this.topicId}/comparison-comments`, body).subscribe({
+      next: (r: any) => {
+        if (r?.status && r?.data) {
+          this.comments = [...this.comments, r.data];
+          this.closeCommentCard();
+        } else {
+          this.toast.error(r?.message || 'Failed to add comment');
+        }
+      },
+      error: () => this.toast.error('Failed to add comment')
+    });
+  }
 
   // ============================================================
   // STICKY-NOTE PIN COMMENTS ("+ Add comment" click-to-place mode)
@@ -330,7 +534,9 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     private toast: ToastService,
     public auth: AuthService,
     private route: ActivatedRoute,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef,
+    public speech: SpeechToTextService
   ) {}
 
   private emptyPane(): PaneState {
@@ -381,10 +587,11 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     // via (scroll)="onPaneScroll(side)" — nothing to wire up manually here.
   }
 
-  /** Closes the download menu when the user clicks anywhere else in the document. The menu root calls $event.stopPropagation() so clicks inside it don't trigger this. */
+  /** Closes the download menu and the on-slide colors popover when the user clicks anywhere else in the document. Both popover roots call $event.stopPropagation() so clicks inside them don't trigger this. */
   @HostListener('document:click')
   onDocumentClick() {
     this.downloadMenuOpen = false;
+    this.cdColorPickerOpen = false;
   }
 
   get canWrite() {
@@ -672,7 +879,11 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     // its finally block), the canvas never appears during the poll because
     // it's still hidden behind that same *ngIf, and the poll gives up.
     pane.loading = false;
-    await this.waitForElement(this.pdfCanvasId(side, 0));
+    // Explicitly trigger change detection so the *ngIf-gated canvas elements
+    // are mounted in the DOM immediately — in the integrated studio environment
+    // the default async CD cycle can lag behind waitForElement's RAF polling.
+    this.cdr.detectChanges();
+    await this.waitForElement(this.pdfCanvasId(side, 0), 600);
     await this.renderAllPdfPages(pane, side);
   }
 
@@ -690,7 +901,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
    */
   async renderAllPdfPages(pane: PaneState, side: 'left' | 'right') {
     for (let i = 0; i < pane.items.length; i++) {
-      await this.waitForElement(this.pdfCanvasId(side, i));
+      await this.waitForElement(this.pdfCanvasId(side, i), 600);
       await this.renderPdfPage(pane, i);
     }
   }
@@ -1363,7 +1574,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   /** Toggles "+ Add comment" pin-placement mode for one item. Arming it on one item disarms it everywhere else and cancels any in-progress draft note. */
   togglePinMode(side: 'left' | 'right', index: number, evt?: Event) {
     evt?.stopPropagation();
-    if (!this.canWrite) return;
+    if (!this.canWrite || this.isFinal(side, index)) return;
     if (this.isPinModeActive(side, index)) {
       this.pinModeItem = null;
       this.draftPin = null;
@@ -1469,6 +1680,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   /** Opens inline edit mode on a pinned sticky note (separate edit state from the footer box's editingCommentId, so both kinds can't collide). Seeds the color picker from the note's saved box_color/text_color, falling back to defaults if it was never customized. */
   startEditPin(c: CommentPin, evt?: Event) {
     evt?.stopPropagation();
+    if (this.isCommentLocked(c)) { this.toast.error('This item is marked final — unmark it to edit comments.'); return; }
     this.editingPinId = c.id;
     this.editingPinText = c.text;
     const parsed = this.rgbaToHexOpacity(c.box_color) || { hex: this.DEFAULT_STICKY_BOX_HEX, opacity: this.DEFAULT_STICKY_OPACITY };
@@ -1524,7 +1736,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   /** Starts dragging an existing sticky note to a new spot on its surface. */
   onPinDragStart(c: CommentPin, evt: MouseEvent) {
-    if (!this.canWrite) return;
+    if (!this.canWrite || this.isCommentLocked(c)) return;
     evt.preventDefault();
     evt.stopPropagation();
     this.draggingPinId = c.id;
@@ -1705,6 +1917,12 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     return !!this.openBox && this.openBox.side === side && this.openBox.index === index;
   }
 
+  /** True if the item a comment belongs to is currently marked final — locks that comment as read-only (no edit/resolve/delete, and no new comments) until the item is unmarked. */
+  isCommentLocked(comment: CommentPin): boolean {
+    const status = this.itemStatuses[this.itemStatusKey(comment.doc_type as any, comment.page_key)];
+    return !!status?.is_final;
+  }
+
   /** Human-readable noun for the compose placeholder — "page" / "slide" / "screenshot" — based on the side's doc type. */
   itemNoun(side: 'left' | 'right'): string {
     const dt = this.paneOf(side).docType;
@@ -1782,6 +2000,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   toggleResolve(comment: CommentPin) {
+    if (this.isCommentLocked(comment)) { this.toast.error('This item is marked final — unmark it to change comments.'); return; }
     const next = !comment.resolved;
     this.api.post<any>(`/comparison-comments/${comment.id}/resolve`, { resolved: next }).subscribe({
       next: (r: any) => {
@@ -1792,6 +2011,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   /** Opens inline edit mode for a comment, directly inside its attached box. */
   startEditComment(comment: CommentPin) {
+    if (this.isCommentLocked(comment)) { this.toast.error('This item is marked final — unmark it to edit comments.'); return; }
     this.editingCommentId = comment.id;
     this.editingText = comment.text;
   }
@@ -1824,6 +2044,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   deleteComment(comment: CommentPin) {
+    if (this.isCommentLocked(comment)) { this.toast.error('This item is marked final — unmark it to delete comments.'); return; }
     if (!confirm('Delete this comment?')) return;
     this.api.delete<any>(`/comparison-comments/${comment.id}`).subscribe({
       next: (r: any) => {
@@ -1841,7 +2062,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   // MARK FINAL / PENDING (per page, slide, or screenshot)
   // ============================================================
 
-  private itemStatusKey(docType: string, pageKey: string): string {
+  itemStatusKey(docType: string, pageKey: string): string {
     return `${docType}::${pageKey}`;
   }
 

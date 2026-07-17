@@ -15,11 +15,22 @@
 .cv-topbar {
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 20px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border, #252a38);
   background: var(--bg-surface, #13161e);
+}
+.cv-topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.cv-topbar-row2 {
+  gap: 8px;
+  padding-top: 2px;
+  border-top: 1px dashed var(--border-light, #2e3447);
+  padding-top: 8px;
 }
 .cv-back {
   background: transparent;
@@ -358,6 +369,7 @@
   flex-direction: column;
   align-items: stretch;
   max-width: 100%;
+  position: relative;
 }
 
 /* Toolbar now sits ABOVE the surface (top of each page/slide/screenshot) —
@@ -1105,4 +1117,403 @@
   .cv-pane { width: 100% !important; border-right: none; border-bottom: 1px solid var(--border); max-height: 45vh; }
   .cv-divider { display: none; }
   .cv-comments-panel { width: 100%; max-height: 30vh; }
+}
+/* ══════════════════════════════════════════════════════════
+   COMMENT DISPLAY-MODE DROPDOWN (top toolbar)
+   ══════════════════════════════════════════════════════════ */
+.cv-displaymode-select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+  max-width: 190px;
+}
+.cv-displaymode-select:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ══════════════════════════════════════════════════════════
+   ON-SLIDE COMMENT DISPLAY: COLOR THEME POPOVER + SEE-THROUGH
+   ══════════════════════════════════════════════════════════ */
+.cv-cdcolor-wrap { position: relative; }
+.cv-cdcolor-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cv-cdcolor-btn:hover { border-color: var(--accent); color: var(--accent); }
+.cv-cdcolor-btn.active { background: rgba(99, 102, 241, 0.16); border-color: var(--accent); color: var(--accent); }
+.cv-cdcolor-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.35);
+  flex: none;
+}
+
+.cv-cdcolor-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  background: var(--bg-surface, #13161e);
+  border: 1px solid var(--border-light, #2e3447);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  z-index: 50;
+}
+.cv-cdcolor-presetgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.cv-cdcolor-preset {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.1s ease;
+}
+.cv-cdcolor-preset:hover { transform: translateY(-1px); }
+.cv-cdcolor-preset.selected { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
+
+.cv-cdcolor-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cv-cdcolor-row label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.cv-cdcolor-custom {
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light, #2e3447);
+}
+.cv-cdcolor-row input[type="color"] {
+  width: 40px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px;
+  background: none;
+  cursor: pointer;
+}
+.cv-cdcolor-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light, #2e3447);
+}
+.cv-cdcolor-reset, .cv-cdcolor-done {
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cv-cdcolor-reset {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.cv-cdcolor-done {
+  background: var(--accent, #6366f1);
+  border: 1px solid var(--accent, #6366f1);
+  color: #fff;
+}
+
+/* Separate always-visible See-through dropdown, styled to match the display-mode select */
+.cv-cdalpha-select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+  max-width: 160px;
+}
+.cv-cdalpha-select:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ══════════════════════════════════════════════════════════
+   "ADD COMMENT" POPUP CARD (opened by the 💬 Comment button)
+   Small floating modal, not attached to any spot on the slide.
+   ══════════════════════════════════════════════════════════ */
+.cv-commentcard-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 16, 0.55);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cv-commentcard {
+  width: min(420px, 92vw);
+  background: var(--bg-surface, #13161e);
+  border: 1px solid var(--border-light, #2e3447);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cv-commentcard-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.cv-commentcard-x {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.cv-commentcard-x:hover { background: var(--bg-hover, #1f2433); color: var(--text-primary); }
+.cv-commentcard textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  box-sizing: border-box;
+  min-height: 90px;
+}
+.cv-commentcard textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim, rgba(99,102,241,0.12));
+}
+.cv-commentcard-textwrap {
+  position: relative;
+}
+.cv-commentcard-mic {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+.cv-commentcard-mic:hover {
+  border-color: var(--accent);
+}
+.cv-commentcard-mic.listening {
+  background: #ff4444;
+  border-color: #ff4444;
+  color: #fff;
+  animation: cv-mic-pulse 1s infinite;
+}
+@keyframes cv-mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.cv-commentcard-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ══════════════════════════════════════════════════════════
+   COMMENT DISPLAY MODES (rendered under/around each item, per the
+   toolbar dropdown). Every mode reuses .cv-ac-* for the comment body
+   (meta row, text, edit/resolve/delete actions) via #commentBody.
+   ══════════════════════════════════════════════════════════ */
+.cv-ac-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.cv-ac-lockedtag { font-size: 11px; opacity: 0.85; }
+
+/* Below slide */
+.cv-cd-below {
+  flex: 0 0 auto;
+  width: 100%;
+  background: rgba(19, 22, 30, 0.4);
+  border: 1px solid var(--border-light, #2e3447);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  z-index: 2;
+}
+.cv-cd-belowhead { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+.cv-cd-item {
+  position: relative;
+  background: rgba(26, 30, 42, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px 10px 14px;
+}
+.cv-cd-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--cv-accent-override, var(--accent, #6366f1));
+  opacity: 0.55;
+}
+.cv-cd-item.resolved { opacity: 0.55; }
+.cv-cd-item.resolved::before { background: var(--success, #22c55e); }
+
+/* On-slide callouts: floating column, top-right of the surface.
+   top:96px (~1in) keeps it clear of the toolbar above the surface. */
+.cv-cd-calloutcol {
+  position: absolute;
+  top: 96px;
+  right: 10px;
+  width: min(260px, 60%);
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+  pointer-events: auto;
+}
+.cv-cd-callout {
+  background: rgba(19, 22, 30, 0.92);
+  backdrop-filter: blur(2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+}
+
+/* Pins only: small numbered dots down the right edge.
+   top:96px (~1in) keeps it clear of the toolbar above the surface. */
+.cv-cd-pinscol {
+  position: absolute;
+  top: 96px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+}
+.cv-cd-pindot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+.cv-cd-pindot.resolved { background: var(--success, #22c55e); }
+
+/* Highlight band: slim strip listing comments inline */
+.cv-cd-hlband {
+  flex: 0 0 auto;
+  width: 100%;
+  background: rgba(19, 22, 30, 0.4);
+  border: 1px solid var(--border-light, #2e3447);
+  border-left: 3px solid var(--accent, #6366f1);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cv-cd-hlrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.cv-cd-hlrow:last-child { border-bottom: none; }
+.cv-cd-hlrow.resolved { opacity: 0.55; }
+.cv-cd-hlnum {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 9.5px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+/* Sticky-note: card column styled like sticky notes.
+   top:96px (~1in) keeps it clear of the toolbar above the surface. */
+.cv-cd-stickycol {
+  position: absolute;
+  top: 96px;
+  right: 10px;
+  width: min(240px, 60%);
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 5;
+}
+.cv-cd-stickycard {
+  background: rgba(245, 158, 11, 0.14);
+  border-top: 3px solid #f59e0b;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
 }

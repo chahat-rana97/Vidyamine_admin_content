@@ -27,13 +27,31 @@ interface SubjectOption {
 interface BookOption {
   id: number;
   name: string;
+  class_id: number;
+  subject_id: number;
 }
 
-/** A deduped row shown in the class filter UI — one per distinct class name,
- *  holding every underlying class.id (across boards) that name maps to. */
-interface ClassFilterOption {
+/** Dropdown option that may represent several underlying rows sharing the same name
+ *  (e.g. "Class 6" existing separately under CBSE, ICSE, etc. when "All Boards" is picked).
+ *  Selecting it filters/sums across every id in the group. */
+interface GroupedOption {
   name: string;
   ids: number[];
+}
+
+/** Collapses a flat list of {id, name} into one GroupedOption per distinct name,
+ *  merging all ids that share that name. Order of first appearance is preserved. */
+function groupByName<T extends { id: number; name: string }>(items: T[]): GroupedOption[] {
+  const order: string[] = [];
+  const byName = new Map<string, number[]>();
+  for (const item of items) {
+    if (!byName.has(item.name)) {
+      byName.set(item.name, []);
+      order.push(item.name);
+    }
+    byName.get(item.name)!.push(item.id);
+  }
+  return order.map(name => ({ name, ids: byName.get(name)! }));
 }
 
 interface MisRow {
@@ -46,7 +64,41 @@ interface MisRow {
   gpt_ppt: number;
 }
 
-type DocTab = 'claude_ppt' | 'claude_pdf' | 'gpt_ppt';
+/** Merges rows that share the same label (e.g. "Class 6" appearing once per board
+ *  under "All Boards") into a single row per label, summing the numeric columns.
+ *  Order of first appearance is preserved. */
+function mergeRowsByLabel(rows: MisRow[]): MisRow[] {
+  const order: string[] = [];
+  const byLabel = new Map<string, MisRow>();
+  for (const row of rows) {
+    const existing = byLabel.get(row.label);
+    if (!existing) {
+      byLabel.set(row.label, { ...row });
+      order.push(row.label);
+    } else {
+      existing.topics += row.topics || 0;
+      existing.screenshots += row.screenshots || 0;
+      existing.claude_ppt += row.claude_ppt || 0;
+      existing.claude_pdf += row.claude_pdf || 0;
+      existing.gpt_ppt += row.gpt_ppt || 0;
+    }
+  }
+  return order.map(label => byLabel.get(label)!);
+}
+
+// Claude PPT / Claude PDF / ChatGPT PPT used to be clickable tabs that only
+// controlled which column got a visual highlight. That's removed — Claude PDF
+// is now permanently highlighted, no toggle needed.
+type HighlightableColumn = 'claude_ppt' | 'claude_pdf' | 'gpt_ppt';
+const HIGHLIGHTED_COLUMN: HighlightableColumn = 'claude_pdf';
+
+type HasDataFilter =
+  | 'all'
+  | 'topics' | 'claude_pdf' | 'claude_ppt' | 'gpt_ppt'
+  | 'no_topics' | 'no_claude_pdf' | 'no_claude_ppt' | 'no_gpt_ppt';
+
+/** Nothing fancy — each of Class/Subject/Book/Chapter is just a plain single-select
+ *  dropdown, exactly like Board. 'all' means no filter applied at that level. */
 
 @Component({
   selector: 'app-mis-report',
@@ -57,29 +109,57 @@ type DocTab = 'claude_ppt' | 'claude_pdf' | 'gpt_ppt';
 })
 export class MisReportComponent implements OnInit {
 
-  // ---- master selector state ----
+  // ---- board (single-select, unchanged) ----
   boards: Board[] = [];
   selectedBoardId: number | 'all' = 'all';
 
+  // ---- Class/Subject/Book/Chapter tabs: pick which row-level the table shows.
+  // Each tab also gates which of the filters below are usable — see filterLocks(). ----
   level: ReportLevel = 'class';
 
-  allClasses: ClassOption[] = [];       // every class row returned by the API (may contain duplicate names across boards)
-  classFilterOptions: ClassFilterOption[] = []; // deduped by name, for display
-  selectedClassNames: Set<string> = new Set();  // which deduped names are checked (Subject level, multi-select)
-  classFilterInitialised = false;               // true after the first successful class load
-  showClassFilter = false;
+  // ---- Board/Class/Subject/Book: separate always-visible dropdowns. Chapter dropdown
+  // is removed entirely (there's no Chapter-level filter anymore — Chapter tab is
+  // just the deepest row-level view, filtered as far down as Book).
+  //
+  // Each dropdown's raw options are deduped by name (see groupByName) — this matters
+  // when "All Boards" is selected, since e.g. "Class 6" exists once per board and
+  // would otherwise show up as five identical entries. Selecting a grouped option
+  // filters/sums across every underlying id it represents. ----
+  classOptionsRaw: ClassOption[] = [];
+  subjectOptionsRaw: SubjectOption[] = [];
+  bookOptionsRaw: BookOption[] = [];
 
-  // ---- Book / Chapter level cascading single-select dropdowns ----
-  // (class -> subject -> book, each narrows the next; all optional / "All ...")
-  filterClasses: ClassOption[] = [];
-  filterSubjects: SubjectOption[] = [];
-  filterBooks: BookOption[] = [];
-  selectedFilterClassId: number | 'all' = 'all';
-  selectedFilterSubjectId: number | 'all' = 'all';
-  selectedFilterBookId: number | 'all' = 'all';
+  classOptions: GroupedOption[] = [];
+  subjectOptions: GroupedOption[] = [];
+  bookOptions: GroupedOption[] = [];
 
-  // ---- top tabs (visual emphasis only, doesn't hide other columns) ----
-  activeTab: DocTab = 'claude_ppt';
+  selectedClassIds: number[] | 'all' = 'all';
+  selectedSubjectIds: number[] | 'all' = 'all';
+  selectedBookIds: number[] | 'all' = 'all';
+
+  // Native <select> needs a single bindable value — these hold the *name* of the
+  // selected grouped option (or 'all'). onXChange() resolves the name back to the
+  // full id array via the matching GroupedOption before filtering/reloading.
+  selectedClassName = 'all';
+  selectedSubjectName = 'all';
+  selectedBookName = 'all';
+
+  // ---- permanently-highlighted column (was previously the "active tab") ----
+  readonly highlightedColumn: HighlightableColumn = HIGHLIGHTED_COLUMN;
+
+  // ---- data filter: All / Has Topics / Has Claude PDF / ... / Has No ... ----
+  hasDataFilter: HasDataFilter = 'all';
+  hasDataOptions: { value: HasDataFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'topics', label: 'Has Topics' },
+    { value: 'claude_pdf', label: 'Has Claude PDF' },
+    { value: 'claude_ppt', label: 'Has Claude PPT' },
+    { value: 'gpt_ppt', label: 'Has ChatGPT PPT' },
+    { value: 'no_topics', label: 'Has No Topics' },
+    { value: 'no_claude_pdf', label: 'Has No Claude PDF' },
+    { value: 'no_claude_ppt', label: 'Has No Claude PPT' },
+    { value: 'no_gpt_ppt', label: 'Has No ChatGPT PPT' },
+  ];
 
   // ---- table data ----
   rows: MisRow[] = [];
@@ -89,11 +169,13 @@ export class MisReportComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadBoards();
-    this.loadClasses();
+    this.loadClassOptions();
+    this.loadSubjectOptions();
+    this.loadBookOptions();
     this.loadRows();
   }
 
-  // ================= MASTER SELECTOR =================
+  // ================= OPTION LOADING (cascades: board -> class -> subject -> book -> chapter) =================
 
   loadBoards(): void {
     this.api.get<any>('/boards').subscribe({
@@ -102,153 +184,154 @@ export class MisReportComponent implements OnInit {
     });
   }
 
-  /** Loads all classes for the current board filter (or every class if 'all').
-   *  Feeds both the Subject-level multi-select and the Book/Chapter-level dropdown. */
-  loadClasses(): void {
-    const url = this.selectedBoardId === 'all'
-      ? '/classes'
-      : `/classes?board_id=${this.selectedBoardId}`;
-
+  /** Classes under the selected board (or every class if 'all'). */
+  loadClassOptions(): void {
+    const url = this.selectedBoardId === 'all' ? '/classes' : `/classes?board_id=${this.selectedBoardId}`;
     this.api.get<any>(url).subscribe({
       next: (res) => {
         if (res?.status) {
-          this.allClasses = res.data || [];
-
-          // Dedupe by name (e.g. "Class 6" may exist under several boards
-          // when "All Boards" is selected) — used by the Subject-level filter.
-          const byName = new Map<string, number[]>();
-          for (const c of this.allClasses) {
-            if (!byName.has(c.name)) byName.set(c.name, []);
-            byName.get(c.name)!.push(c.id);
-          }
-          this.classFilterOptions = Array.from(byName.entries()).map(([name, ids]) => ({ name, ids }));
-
-          const isFirstLoad = this.selectedClassNames.size === 0 && !this.classFilterInitialised;
-          if (isFirstLoad) {
-            this.selectedClassNames = new Set(this.classFilterOptions.map(o => o.name));
-          } else {
-            const validNames = new Set(this.classFilterOptions.map(o => o.name));
-            this.selectedClassNames = new Set(
-              Array.from(this.selectedClassNames).filter(n => validNames.has(n))
-            );
-          }
-          this.classFilterInitialised = true;
-
-          // Book/Chapter-level dropdown uses the raw (non-deduped) list, since
-          // it's a single-select and each row already has a real class.id.
-          this.filterClasses = this.allClasses;
+          this.classOptionsRaw = res.data || [];
+          this.classOptions = groupByName(this.classOptionsRaw);
+          this.pruneSelection('class');
         }
       },
       error: () => this.toast.error('Failed to load classes')
     });
   }
 
-  /** Loads subjects scoped to the selected Book/Chapter-level class filter (or all under the board). */
-  loadFilterSubjects(): void {
-    if (this.selectedFilterClassId === 'all') {
-      // No class chosen — list every subject under the board (or globally).
-      this.api.get<any>('/subjects').subscribe({
-        next: (res) => { if (res?.status) this.filterSubjects = res.data || []; },
-        error: () => this.toast.error('Failed to load subjects')
-      });
-      return;
-    }
-    this.api.get<any>(`/subjects?class_id=${this.selectedFilterClassId}`).subscribe({
-      next: (res) => { if (res?.status) this.filterSubjects = res.data || []; },
+  /** Subjects under the selected board + selected class(es). */
+  loadSubjectOptions(): void {
+    const params: string[] = [];
+    if (this.selectedBoardId !== 'all') params.push(`board_id=${this.selectedBoardId}`);
+    if (this.selectedClassIds !== 'all') params.push(`class_ids=${this.selectedClassIds.join(',')}`);
+    this.api.get<any>(`/subjects${params.length ? '?' + params.join('&') : ''}`).subscribe({
+      next: (res) => {
+        if (res?.status) {
+          this.subjectOptionsRaw = res.data || [];
+          this.subjectOptions = groupByName(this.subjectOptionsRaw);
+          this.pruneSelection('subject');
+        }
+      },
       error: () => this.toast.error('Failed to load subjects')
     });
   }
 
-  /** Loads books matching the current Book/Chapter-level class/subject filters. */
-  loadFilterBooks(): void {
+  /** Books under the selected board + selected class(es) + selected subject(s). */
+  loadBookOptions(): void {
     const params: string[] = [];
     if (this.selectedBoardId !== 'all') params.push(`board_id=${this.selectedBoardId}`);
-    if (this.selectedFilterClassId !== 'all') params.push(`class_id=${this.selectedFilterClassId}`);
-    if (this.selectedFilterSubjectId !== 'all') params.push(`subject_id=${this.selectedFilterSubjectId}`);
-
+    if (this.selectedClassIds !== 'all') params.push(`class_ids=${this.selectedClassIds.join(',')}`);
+    if (this.selectedSubjectIds !== 'all') params.push(`subject_ids=${this.selectedSubjectIds.join(',')}`);
     this.api.get<any>(`/books${params.length ? '?' + params.join('&') : ''}`).subscribe({
-      next: (res) => { if (res?.status) this.filterBooks = res.data || []; },
+      next: (res) => {
+        if (res?.status) {
+          this.bookOptionsRaw = res.data || [];
+          this.bookOptions = groupByName(this.bookOptionsRaw);
+          this.pruneSelection('book');
+        }
+      },
       error: () => this.toast.error('Failed to load books')
     });
   }
 
-  onBoardChange(): void {
-    this.loadClasses();
-    // Board changed — the class/subject/book dropdown chain is no longer
-    // guaranteed valid, so reset it back to "All" and reload from scratch.
-    this.selectedFilterClassId = 'all';
-    this.selectedFilterSubjectId = 'all';
-    this.selectedFilterBookId = 'all';
-    if (this.level === 'book' || this.level === 'chapter') {
-      this.loadFilterSubjects();
-      this.loadFilterBooks();
+  /** Drops the current selection at a level if its name is no longer among the
+   *  available grouped options (e.g. after a board/class change removes that name entirely). */
+  private pruneSelection(level: 'class' | 'subject' | 'book'): void {
+    if (level === 'class') {
+      if (this.selectedClassName !== 'all' && !this.classOptions.some(o => o.name === this.selectedClassName)) {
+        this.selectedClassName = 'all';
+        this.selectedClassIds = 'all';
+      }
+    } else if (level === 'subject') {
+      if (this.selectedSubjectName !== 'all' && !this.subjectOptions.some(o => o.name === this.selectedSubjectName)) {
+        this.selectedSubjectName = 'all';
+        this.selectedSubjectIds = 'all';
+      }
+    } else {
+      if (this.selectedBookName !== 'all' && !this.bookOptions.some(o => o.name === this.selectedBookName)) {
+        this.selectedBookName = 'all';
+        this.selectedBookIds = 'all';
+      }
     }
+  }
+
+  // ================= EVENT HANDLERS =================
+
+  onBoardChange(): void {
+    // Board changed — ids from the old board are meaningless under the new one,
+    // so reset all three filters back to "All" rather than trying to prune/match them.
+    this.selectedClassName = 'all';
+    this.selectedClassIds = 'all';
+    this.selectedSubjectName = 'all';
+    this.selectedSubjectIds = 'all';
+    this.selectedBookName = 'all';
+    this.selectedBookIds = 'all';
+    this.loadClassOptions();
+    this.loadSubjectOptions();
+    this.loadBookOptions();
     this.loadRows();
   }
 
+  /** Switches which row-level the table shows. Also gates which filters below are
+   *  enabled — see isClassFilterLocked() / isSubjectFilterLocked() / isBookFilterLocked(). */
   setLevel(l: ReportLevel): void {
     if (this.level === l) return;
     this.level = l;
-
-    if (l === 'book' || l === 'chapter') {
-      this.loadFilterSubjects();
-      this.loadFilterBooks();
-    }
     this.loadRows();
   }
 
-  /** Class dropdown changed (Book/Chapter level) — narrows subjects and books, resets both downstream selections. */
-  onFilterClassChange(): void {
-    this.selectedFilterSubjectId = 'all';
-    this.selectedFilterBookId = 'all';
-    this.loadFilterSubjects();
-    this.loadFilterBooks();
+  onHasDataFilterChange(): void {
     this.loadRows();
   }
 
-  /** Subject dropdown changed (Book/Chapter level) — narrows books, resets book selection. */
-  onFilterSubjectChange(): void {
-    this.selectedFilterBookId = 'all';
-    this.loadFilterBooks();
+  /** Picking a Class immediately narrows Subject/Book and reloads the table.
+   *  Resolves the picked name to its full underlying id array (may be several ids
+   *  when the same class name spans multiple boards under "All Boards"). */
+  onClassChange(): void {
+    const match = this.classOptions.find(o => o.name === this.selectedClassName);
+    this.selectedClassIds = match ? match.ids : 'all';
+    this.loadSubjectOptions();
+    this.loadBookOptions();
     this.loadRows();
   }
 
-  /** Book dropdown changed (Chapter level only). */
-  onFilterBookChange(): void {
+  /** Picking a Subject immediately narrows Book and reloads the table. */
+  onSubjectChange(): void {
+    const match = this.subjectOptions.find(o => o.name === this.selectedSubjectName);
+    this.selectedSubjectIds = match ? match.ids : 'all';
+    this.loadBookOptions();
     this.loadRows();
   }
 
-  toggleClassFilter(): void {
-    this.showClassFilter = !this.showClassFilter;
-  }
-
-  isClassSelected(name: string): boolean {
-    return this.selectedClassNames.has(name);
-  }
-
-  toggleClassSelection(name: string): void {
-    if (this.selectedClassNames.has(name)) {
-      this.selectedClassNames.delete(name);
-    } else {
-      this.selectedClassNames.add(name);
-    }
-  }
-
-  selectAllClasses(): void {
-    this.selectedClassNames = new Set(this.classFilterOptions.map(o => o.name));
-  }
-
-  clearAllClasses(): void {
-    this.selectedClassNames.clear();
-  }
-
-  applyClassFilter(): void {
-    this.showClassFilter = false;
+  /** Book is the deepest filter now (Chapter dropdown removed) — just reload the table. */
+  onBookChange(): void {
+    const match = this.bookOptions.find(o => o.name === this.selectedBookName);
+    this.selectedBookIds = match ? match.ids : 'all';
     this.loadRows();
   }
 
-  setTab(tab: DocTab): void {
-    this.activeTab = tab;
+  // ================= FILTER LOCKING =================
+  // Class tab: only Board usable. Subject tab: Board + Class. Book tab: Board + Class + Subject.
+  // Chapter tab: Board + Class + Subject + Book (the max — there's no deeper filter to add).
+
+  isClassFilterLocked(): boolean {
+    return this.level === 'class';
+  }
+
+  isSubjectFilterLocked(): boolean {
+    return this.level === 'class' || this.level === 'subject';
+  }
+
+  isBookFilterLocked(): boolean {
+    return this.level === 'class' || this.level === 'subject' || this.level === 'book';
+  }
+
+  /** Tooltip text shown on a locked filter, telling the person which tab to pick first. */
+  lockedFilterMessage(): string {
+    const labels: Record<ReportLevel, string> = {
+      class: 'Class', subject: 'Subject', book: 'Book', chapter: 'Chapter'
+    };
+    return `Select ${labels[this.level]} first`;
   }
 
   // ================= DATA LOAD =================
@@ -260,31 +343,27 @@ export class MisReportComponent implements OnInit {
     if (this.selectedBoardId !== 'all') {
       params.push(`board_id=${this.selectedBoardId}`);
     }
+    if (this.hasDataFilter !== 'all') {
+      params.push(`has_data=${this.hasDataFilter}`);
+    }
 
-    if (this.level === 'subject') {
-      // Class filter is only meaningful in Subject mode — narrows which
-      // classes get aggregated into each subject row.
-      if (this.selectedClassNames.size > 0 &&
-          this.selectedClassNames.size < this.classFilterOptions.length) {
-        const ids = this.classFilterOptions
-          .filter(o => this.selectedClassNames.has(o.name))
-          .flatMap(o => o.ids);
-        params.push(`class_ids=${ids.join(',')}`);
-      }
-    } else if (this.level === 'book') {
-      if (this.selectedFilterClassId !== 'all') params.push(`class_id=${this.selectedFilterClassId}`);
-      if (this.selectedFilterSubjectId !== 'all') params.push(`subject_id=${this.selectedFilterSubjectId}`);
-    } else if (this.level === 'chapter') {
-      if (this.selectedFilterClassId !== 'all') params.push(`class_id=${this.selectedFilterClassId}`);
-      if (this.selectedFilterSubjectId !== 'all') params.push(`subject_id=${this.selectedFilterSubjectId}`);
-      if (this.selectedFilterBookId !== 'all') params.push(`book_id=${this.selectedFilterBookId}`);
+    // Class/Subject/Book filters apply regardless of "view as" level — e.g. you can view
+    // as Chapter while filtering to Class 6 and Subject Math.
+    if (this.selectedClassIds !== 'all') {
+      params.push(`class_ids=${this.selectedClassIds.join(',')}`);
+    }
+    if (this.selectedSubjectIds !== 'all') {
+      params.push(`subject_ids=${this.selectedSubjectIds.join(',')}`);
+    }
+    if (this.selectedBookIds !== 'all') {
+      params.push(`book_ids=${this.selectedBookIds.join(',')}`);
     }
 
     this.api.get<any>(`/reports/mis?${params.join('&')}`).subscribe({
       next: (res) => {
         this.loading = false;
         if (res?.status) {
-          this.rows = res.data?.rows || [];
+          this.rows = mergeRowsByLabel(res.data?.rows || []);
         } else {
           this.toast.error(res?.message || 'Failed to load MIS report');
         }
@@ -294,12 +373,6 @@ export class MisReportComponent implements OnInit {
         this.toast.error('Failed to load MIS report');
       }
     });
-  }
-
-  get selectedClassCountLabel(): string {
-    if (this.selectedClassNames.size === this.classFilterOptions.length) return 'All Classes';
-    if (this.selectedClassNames.size === 0) return 'No Classes';
-    return `${this.selectedClassNames.size} Classes`;
   }
 
   get columnLabel(): string {
