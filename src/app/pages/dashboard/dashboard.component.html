@@ -36,9 +36,9 @@
     <div class="stats-row">
       <a class="stat-card"
          *ngFor="let s of stats"
-         [routerLink]="(s.route === '/admin-users' && isAdminUsersRestricted) ? null : s.route"
-         [class.is-restricted]="s.route === '/admin-users' && isAdminUsersRestricted"
-         (click)="s.route === '/admin-users' ? onRestrictedLinkClick(s.label, $event) : null">
+         [routerLink]="isRouteRestricted(s.route) ? null : s.route"
+         [class.is-restricted]="isRouteRestricted(s.route)"
+         (click)="isRouteRestricted(s.route) ? onRestrictedLinkClick(s.label, $event) : null">
         <span class="stat-accent stat-accent--{{ s.accent }}"></span>
         <div class="stat-top-row">
           <span class="stat-label">{{ s.label }}</span>

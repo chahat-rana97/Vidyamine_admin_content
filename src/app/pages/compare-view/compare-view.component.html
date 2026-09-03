@@ -1,25 +1,28 @@
-<div class="cv-root">
+<div class="cv-root" [class.cv-appfullscreen]="appFullscreen">
 
   <!-- ═══════════════ TOP BAR ═══════════════ -->
   <div class="cv-topbar">
     <div class="cv-topbar-row cv-topbar-row1">
       <button class="cv-back" (click)="goBack()">← Back</button>
       <div class="cv-title">
-        <span class="cv-topicname">{{ topic?.name || 'Loading…' }}</span>
         <code class="cv-topiccode" *ngIf="topic">{{ topic.topic_code }}</code>
+        <button
+          class="cv-topicnavbtn cv-topicnavbtn-prev"
+          [disabled]="navigatingTopic || !topic"
+          (click)="goToPrevTopic()"
+          title="Previous topic"
+        >‹ Prev</button>
+        <button
+          class="cv-topicnavbtn cv-topicnavbtn-next"
+          [disabled]="navigatingTopic || !topic"
+          (click)="goToNextTopic()"
+          title="Next topic"
+        >Next ›</button>
+        <span class="cv-topicnav-spinner" *ngIf="navigatingTopic">⏳</span>
       </div>
       <div class="cv-spacer"></div>
 
       <div class="cv-panetoggles" *ngIf="!pickerOpen && left.docType && right.docType">
-        <button
-          class="cv-syncbtn"
-          [class.on]="syncScrollEnabled"
-          (click)="onSyncButtonClick()"
-          title="This feature is in progress"
-        >
-          <span class="cv-syncbtn-dot"></span>
-          {{ syncScrollEnabled ? 'Sync: On' : 'Sync: Off' }}
-        </button>
         <button
           class="cv-panetogglebtn"
           [class.active]="leftPaneOpen"
@@ -41,25 +44,135 @@
       </div>
 
       <div class="cv-downloadwrap" *ngIf="!pickerOpen && left.docType && right.docType">
-        <button class="cv-downloadbtn" [disabled]="!!downloadingSide" (click)="downloadMenuOpen = !downloadMenuOpen; $event.stopPropagation()">
+        <button class="cv-downloadbtn" [disabled]="!isEditor && !!downloadingSide"
+          (click)="isEditor ? blockIfEditor($event) : (downloadMenuOpen = !downloadMenuOpen); $event.stopPropagation()"
+          [title]="isEditor ? 'Access denied' : ''">
           <ng-container *ngIf="!downloadingSide; else downloadingTpl">⬇ Download</ng-container>
           <ng-template #downloadingTpl><span class="cv-download-spinner"></span> Downloading…</ng-template>
         </button>
-        <div class="cv-downloadmenu" *ngIf="downloadMenuOpen" (click)="$event.stopPropagation()">
-          <div class="cv-downloadmenu-section">{{ DOC_LABEL[left.docType] }}</div>
-          <button (click)="downloadWithComments('left')" [disabled]="downloadingSide === 'left'">📄 Pages with comments</button>
-          <button (click)="downloadCommentLog('left')" [disabled]="downloadingSide === 'left'">📝 Comment log only</button>
-          <div class="cv-downloadmenu-section">{{ DOC_LABEL[right.docType] }}</div>
-          <button (click)="downloadWithComments('right')" [disabled]="downloadingSide === 'right'">📄 Pages with comments</button>
-          <button (click)="downloadCommentLog('right')" [disabled]="downloadingSide === 'right'">📝 Comment log only</button>
+        <div class="cv-downloadmenu cv-downloadmenu-wide" *ngIf="downloadMenuOpen" (click)="$event.stopPropagation()">
+          <ng-container *ngFor="let s of downloadMenuSideOrder()">
+            <ng-container *ngTemplateOutlet="downloadSideBlock; context: { side: s, docLabel: docLabelFor(paneOfPublic(s).docType) }"></ng-container>
+          </ng-container>
         </div>
       </div>
 
+      <!-- Reusable per-side download options block — PDF-export kinds (each
+           with its own filter submenu) followed by flat comment-only
+           formats. Used twice above via ngTemplateOutlet (left/right).
+           docLabel is resolved at the call site (where left.docType /
+           right.docType are still narrowed non-null by the wrapping
+           *ngIf="...&& left.docType && right.docType" above) rather than
+           re-read inside this template, since template-context locals are
+           untyped and would re-introduce a possibly-null docType here. -->
+      <ng-template #downloadSideBlock let-side="side" let-docLabel="docLabel">
+        <div class="cv-downloadmenu-section">{{ docLabel }}</div>
+
+        <div class="cv-downloadmenu-group">
+          <div class="cv-downloadmenu-subhead">PDF export</div>
+          <ng-container *ngFor="let kind of EXPORT_KIND_ORDER">
+            <!-- commented_zip always targets the "commented" pages only, so it's a
+                 single direct-click action with no filter submenu (unlike the other
+                 three kinds, which let the user pick which pages to include). -->
+            <button
+              *ngIf="kind === 'commented_zip'; else kindWithFilters"
+              class="cv-downloadmenu-kindbtn cv-downloadmenu-highlight"
+              [disabled]="downloadingSide === side"
+              (click)="downloadPagesExport(side, kind, 'commented')"
+            >
+              {{ EXPORT_KIND_LABEL[kind] }}
+            </button>
+            <ng-template #kindWithFilters>
+              <button
+                class="cv-downloadmenu-kindbtn"
+                [class.active]="downloadPdfSubmenuSide === (side + '::' + kind)"
+                [disabled]="downloadingSide === side"
+                (click)="toggleKindSubmenu(side, kind)"
+              >
+                {{ EXPORT_KIND_LABEL[kind] }}
+                <span class="cv-downloadmenu-caret">{{ downloadPdfSubmenuSide === (side + '::' + kind) ? '▾' : '▸' }}</span>
+              </button>
+              <div class="cv-downloadmenu-filters" *ngIf="downloadPdfSubmenuSide === (side + '::' + kind)">
+                <button
+                  *ngFor="let filter of EXPORT_FILTER_ORDER"
+                  [disabled]="downloadingSide === side"
+                  (click)="downloadPagesExport(side, kind, filter)"
+                >{{ EXPORT_FILTER_LABEL[filter] }}</button>
+              </div>
+            </ng-template>
+          </ng-container>
+        </div>
+
+        <div class="cv-downloadmenu-group">
+          <div class="cv-downloadmenu-subhead">Comments only</div>
+          <button
+            *ngFor="let format of COMMENT_FORMAT_ORDER"
+            [disabled]="downloadingSide === side"
+            (click)="downloadCommentsExport(side, format)"
+          >{{ COMMENT_FORMAT_LABEL[format] }}</button>
+        </div>
+      </ng-template>
+
       <button class="cv-changebtn" (click)="openPicker()">🔀 Change documents</button>
+      <button class="cv-appfullscreenbtn cv-appfullscreenbtn-icon" [class.active]="appFullscreen" (click)="toggleAppFullscreen()"
+              [title]="appFullscreen ? 'Exit full screen' : 'Expand to full screen (hides sidebar and header)'">
+        {{ appFullscreen ? '⤡' : '⛶' }}
+      </button>
     </div>
 
     <!-- ROW 2: everything related to how comments are displayed on-slide -->
     <div class="cv-topbar-row cv-topbar-row2" *ngIf="!pickerOpen && left.docType && right.docType">
+      <div class="cv-assignwrap" [class.busy]="assigningTopic">
+        <select
+          class="cv-assignselect"
+          [ngModel]="topic?.assigned_to || ''"
+          (ngModelChange)="isEditor ? null : onAssigneeChange($event)"
+          (mousedown)="isEditor ? blockIfEditor($event) : null"
+          [disabled]="assigningTopic || !topic"
+          [title]="isEditor ? 'Access denied' : 'Assign this topic to a user'"
+        >
+          <option value="">— Unassigned —</option>
+          <option *ngFor="let u of assignableUsers" [value]="u.id">{{ u.name }}</option>
+        </select>
+      </div>
+
+      <button
+        class="cv-canvasbtn"
+        [disabled]="!isEditor && !canvasAvailable"
+        (click)="isEditor ? blockIfEditor($event) : openCanvas()"
+        [title]="isEditor ? 'Access denied' : 'Open Canvas — triage and compose slides from the attached PDF/PPTX'"
+      >📋 Canvas</button>
+
+      <div class="cv-spacer"></div>
+
+      <div class="cv-slidefilter-wrap">
+        <button
+          class="cv-slidefilter-btn"
+          [class.active]="slideFilterMenuOpen || slideFilter !== 'all'"
+          (click)="toggleSlideFilterMenu($event)"
+          title="Filter/jump to slides by comment or final status"
+        >
+          🗂 {{ SLIDE_FILTER_LABEL[slideFilter] }}
+          <span class="cv-slidefilter-count" *ngIf="slideFilter !== 'all'">{{ slideFilterMatchCount(activePaneSide) }}</span>
+        </button>
+
+        <div class="cv-slidefilter-menu" *ngIf="slideFilterMenuOpen" (click)="$event.stopPropagation()">
+          <button
+            *ngFor="let f of SLIDE_FILTERS_COMMENT_GROUP"
+            class="cv-slidefilter-item"
+            [class.selected]="slideFilter === f"
+            (click)="applySlideFilter(f)"
+          >{{ SLIDE_FILTER_LABEL[f] }}</button>
+          <div class="cv-slidefilter-sep"></div>
+          <button
+            *ngFor="let f of SLIDE_FILTERS_FINAL_GROUP"
+            class="cv-slidefilter-item"
+            [class.selected]="slideFilter === f"
+            (click)="applySlideFilter(f)"
+          >{{ SLIDE_FILTER_LABEL[f] }}</button>
+        </div>
+      </div>
+
       <select
         class="cv-displaymode-select"
         [ngModel]="commentDisplayMode"
@@ -212,10 +325,13 @@
       <button
         class="cv-item-finalbtn"
         [class.active]="isFinal(side, index)"
-        [disabled]="!canWrite"
+        [disabled]="!canWrite || isToggleFinalLoading(side, index)"
         (click)="toggleFinal(side, index)"
         title="{{ isFinal(side, index) ? 'Mark this ' + itemNoun(side) + ' as pending' : 'Mark this ' + itemNoun(side) + ' as final' }}"
-      >{{ isFinal(side, index) ? '✓ Final' : '☐ Mark final' }}</button>
+      >
+        <span class="cv-btn-spinner" *ngIf="isToggleFinalLoading(side, index)"></span>
+        <ng-container *ngIf="!isToggleFinalLoading(side, index)">{{ isFinal(side, index) ? '✓ Final' : '☐ Mark final' }}</ng-container>
+      </button>
     </div>
 
     <!-- Small popup "add comment" card — opens on Comment click, not attached
@@ -226,25 +342,34 @@
           <span>Add comment</span>
           <button class="cv-commentcard-x" (click)="closeCommentCard()">✕</button>
         </div>
-        <div class="cv-commentcard-textwrap">
+        <div class="cv-commentcard-textwrap cv-resizable-wrap">
           <textarea
             [(ngModel)]="commentCardText"
             rows="4"
             placeholder="Write your comment for this {{ itemNoun(side) }}…"
             autofocus
           ></textarea>
-          <button
-            type="button"
-            class="cv-commentcard-mic"
-            *ngIf="speech.isSupported()"
-            [class.listening]="speech.isListening"
-            (click)="toggleCommentCardMic()"
-            title="{{ speech.isListening ? 'Stop dictation' : 'Dictate comment (Chrome/Edge)' }}"
-          >{{ speech.isListening ? '⏹' : '🎤' }}</button>
         </div>
         <div class="cv-commentcard-btns">
+          <button
+            type="button"
+            class="cv-mic-btn"
+            *ngIf="speech.isSupported()"
+            [class.listening]="isDictating('commentCard')"
+            (click)="toggleDictation('commentCard')"
+            title="{{ isDictating('commentCard') ? 'Stop dictation' : 'Dictate comment (Chrome/Edge)' }}"
+          >
+            <span class="cv-mic-rings" *ngIf="isDictating('commentCard')">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="cv-mic-icon">{{ isDictating('commentCard') ? '⏹' : '🎤' }}</span>
+          </button>
+          <span class="cv-commentcard-spacer"></span>
           <button class="cv-ac-cancel" (click)="closeCommentCard()">Cancel</button>
-          <button class="cv-ac-save" [disabled]="!commentCardText.trim()" (click)="submitCommentCard()">＋ Add comment</button>
+          <button class="cv-ac-save" [disabled]="!commentCardText.trim() || commentCardSaving" (click)="submitCommentCard()">
+            <span class="cv-btn-spinner" *ngIf="commentCardSaving"></span>
+            <ng-container *ngIf="!commentCardSaving">＋ Add comment</ng-container>
+          </button>
         </div>
       </div>
     </div>
@@ -263,14 +388,14 @@
       <!-- BELOW SLIDE: a strip under the item listing every comment -->
       <div class="cv-cd-below" *ngIf="commentDisplayMode === 'below'">
         <span class="cv-cd-belowhead">{{ commentsForIndex(side, index).length }} comment(s) on this {{ itemNoun(side) }}:</span>
-        <div class="cv-cd-item" *ngFor="let c of commentsForIndex(side, index); let ci = index" [class.resolved]="c.resolved">
+        <div class="cv-cd-item" *ngFor="let c of commentsForIndex(side, index); let ci = index; trackBy: trackByCommentId" [class.resolved]="c.resolved">
           <ng-container *ngTemplateOutlet="commentBody; context: { c: c, ci: ci, side: side, index: index }"></ng-container>
         </div>
       </div>
 
       <!-- ON-SLIDE CALLOUTS: floating card column, top-right of the item -->
       <div class="cv-cd-calloutcol" *ngIf="commentDisplayMode === 'callout'">
-        <div class="cv-cd-item cv-cd-callout" *ngFor="let c of commentsForIndex(side, index); let ci = index" [class.resolved]="c.resolved"
+        <div class="cv-cd-item cv-cd-callout" *ngFor="let c of commentsForIndex(side, index); let ci = index; trackBy: trackByCommentId" [class.resolved]="c.resolved"
              [style.background]="c.resolved ? null : cdCardBackground" [style.borderColor]="c.resolved ? null : cdBorderColor"
              [style.color]="c.resolved ? null : cdTextColor"
              [style.--cv-accent-override]="c.resolved ? null : cdBorderColor">
@@ -280,7 +405,7 @@
 
       <!-- PINS ONLY: small numbered dots down the right edge, hover/click for text -->
       <div class="cv-cd-pinscol" *ngIf="commentDisplayMode === 'pins'">
-        <div class="cv-cd-pindot" *ngFor="let c of commentsForIndex(side, index); let ci = index"
+        <div class="cv-cd-pindot" *ngFor="let c of commentsForIndex(side, index); let ci = index; trackBy: trackByCommentId"
              [class.resolved]="c.resolved" [title]="c.text"
              [style.background]="c.resolved ? null : cdPinColor" [style.color]="c.resolved ? null : cdTextColor"
              (click)="isCommentLocked(c) ? null : toggleResolve(c)">{{ ci + 1 }}</div>
@@ -288,7 +413,7 @@
 
       <!-- HIGHLIGHT BAND: a slim horizontal strip listing comments inline -->
       <div class="cv-cd-hlband" *ngIf="commentDisplayMode === 'highlight'" [style.background]="cdCardBackground" [style.borderLeftColor]="cdBorderColor" [style.color]="cdTextColor">
-        <div class="cv-cd-hlrow" *ngFor="let c of commentsForIndex(side, index); let ci = index" [class.resolved]="c.resolved">
+        <div class="cv-cd-hlrow" *ngFor="let c of commentsForIndex(side, index); let ci = index; trackBy: trackByCommentId" [class.resolved]="c.resolved">
           <span class="cv-cd-hlnum" [style.background]="c.resolved ? null : cdPinColor" [style.color]="c.resolved ? null : cdTextColor">{{ ci + 1 }}</span>
           <ng-container *ngTemplateOutlet="commentBody; context: { c: c, ci: ci, side: side, index: index, compact: true }"></ng-container>
         </div>
@@ -296,7 +421,7 @@
 
       <!-- STICKY-NOTE: card column styled like sticky notes -->
       <div class="cv-cd-stickycol" *ngIf="commentDisplayMode === 'sticky'">
-        <div class="cv-cd-item cv-cd-stickycard" *ngFor="let c of commentsForIndex(side, index); let ci = index" [class.resolved]="c.resolved"
+        <div class="cv-cd-item cv-cd-stickycard" *ngFor="let c of commentsForIndex(side, index); let ci = index; trackBy: trackByCommentId" [class.resolved]="c.resolved"
              [style.background]="c.resolved ? null : cdCardBackground" [style.borderTopColor]="c.resolved ? null : cdBorderColor"
              [style.color]="c.resolved ? null : cdTextColor"
              [style.--cv-accent-override]="c.resolved ? null : cdBorderColor">
@@ -324,17 +449,44 @@
       </div>
       <div class="cv-ac-text">{{ c.text }}</div>
       <div class="cv-ac-actions" *ngIf="canWrite && !isCommentLocked(c)">
-        <button (click)="startEditComment(c)">✎ Edit</button>
-        <button (click)="toggleResolve(c)">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</button>
-        <button (click)="deleteComment(c)">🗑 Delete</button>
+        <button class="cv-ac-btn cv-ac-btn-edit" [disabled]="!!commentActionLoading[c.id]" (click)="startEditComment(c)">✎ Edit</button>
+        <button class="cv-ac-btn cv-ac-btn-resolve" [disabled]="!!commentActionLoading[c.id]" (click)="toggleResolve(c)">
+          <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'resolve'"></span>
+          <ng-container *ngIf="commentActionLoading[c.id] !== 'resolve'">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</ng-container>
+        </button>
+        <button class="cv-ac-btn cv-ac-btn-delete" [disabled]="!!commentActionLoading[c.id]" (click)="deleteComment(c)">
+          <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'delete'"></span>
+          <ng-container *ngIf="commentActionLoading[c.id] !== 'delete'">🗑 Delete</ng-container>
+        </button>
       </div>
     </ng-container>
 
     <ng-template #editTpl>
-      <textarea class="cv-ac-edittext" [(ngModel)]="editingText" rows="2"></textarea>
+      <div class="cv-resizable-wrap">
+        <textarea class="cv-ac-edittext" [(ngModel)]="editingText" rows="2" #editBox
+                  (input)="autoGrow(editBox)"
+                  cvAutoGrow></textarea>
+      </div>
       <div class="cv-ac-editactions">
-        <button class="cv-ac-cancel" (click)="cancelEditComment()">Cancel</button>
-        <button class="cv-ac-save" [disabled]="!editingText.trim()" (click)="saveEditComment(c)">Save</button>
+        <button
+          type="button"
+          class="cv-mic-btn cv-mic-btn-sm"
+          *ngIf="speech.isSupported()"
+          [class.listening]="isDictating('footerEdit')"
+          (click)="toggleDictation('footerEdit')"
+          title="{{ isDictating('footerEdit') ? 'Stop dictation' : 'Dictate comment (Chrome/Edge)' }}"
+        >
+          <span class="cv-mic-rings" *ngIf="isDictating('footerEdit')">
+            <span></span><span></span><span></span>
+          </span>
+          <span class="cv-mic-icon">{{ isDictating('footerEdit') ? '⏹' : '🎤' }}</span>
+        </button>
+        <span class="cv-ac-editactions-spacer"></span>
+        <button class="cv-ac-cancel" [disabled]="!!commentActionLoading[c.id]" (click)="cancelEditComment()">Cancel</button>
+        <button class="cv-ac-save" [disabled]="!editingText.trim() || !!commentActionLoading[c.id]" (click)="saveEditComment(c)">
+          <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'save'"></span>
+          <ng-container *ngIf="commentActionLoading[c.id] !== 'save'">Save</ng-container>
+        </button>
       </div>
     </ng-template>
   </ng-template>
@@ -367,7 +519,7 @@
     <!-- Existing pinned sticky notes -->
     <div
       class="cv-sticky-wrap"
-      *ngFor="let c of pinnedCommentsForIndex(side, index)"
+      *ngFor="let c of pinnedCommentsForIndex(side, index); trackBy: trackByCommentId"
       [style.left.%]="pinX(c)"
       [style.top.%]="pinY(c)"
       (click)="$event.stopPropagation()"
@@ -400,7 +552,10 @@
           </ng-container>
 
           <ng-template #editPinTpl>
-            <textarea class="cv-sticky-edittext" [(ngModel)]="editingPinText" rows="3" (click)="$event.stopPropagation()"></textarea>
+            <div class="cv-resizable-wrap">
+              <textarea class="cv-sticky-edittext" [(ngModel)]="editingPinText" rows="3" #pinEditBox
+                        (input)="autoGrow(pinEditBox)" (click)="$event.stopPropagation()" cvAutoGrow></textarea>
+            </div>
           </ng-template>
         </div>
       </div>
@@ -409,16 +564,38 @@
       <ng-container *ngIf="isToolbarExpanded(c.id)">
         <div class="cv-sticky-toolbar" *ngIf="editingPinId !== c.id; else editToolbarTpl">
           <ng-container *ngIf="canWrite">
-            <button (click)="startEditPin(c, $event)">✎ Edit</button>
-            <button (click)="toggleResolvePin(c, $event)">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</button>
-            <button (click)="deletePin(c, $event)">🗑 Delete</button>
+            <button [disabled]="!!commentActionLoading[c.id]" (click)="startEditPin(c, $event)">✎ Edit</button>
+            <button [disabled]="!!commentActionLoading[c.id]" (click)="toggleResolvePin(c, $event)">
+              <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'resolve'"></span>
+              <ng-container *ngIf="commentActionLoading[c.id] !== 'resolve'">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</ng-container>
+            </button>
+            <button [disabled]="!!commentActionLoading[c.id]" (click)="deletePin(c, $event)">
+              <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'delete'"></span>
+              <ng-container *ngIf="commentActionLoading[c.id] !== 'delete'">🗑 Delete</ng-container>
+            </button>
           </ng-container>
         </div>
         <ng-template #editToolbarTpl>
           <div class="cv-sticky-toolbar">
+            <button
+              type="button"
+              class="cv-mic-btn cv-mic-btn-sm"
+              *ngIf="speech.isSupported()"
+              [class.listening]="isDictating('pinEdit')"
+              (click)="toggleDictation('pinEdit'); $event.stopPropagation()"
+              title="{{ isDictating('pinEdit') ? 'Stop dictation' : 'Dictate comment (Chrome/Edge)' }}"
+            >
+              <span class="cv-mic-rings" *ngIf="isDictating('pinEdit')">
+                <span></span><span></span><span></span>
+              </span>
+              <span class="cv-mic-icon">{{ isDictating('pinEdit') ? '⏹' : '🎤' }}</span>
+            </button>
             <button (click)="toggleColorPicker($event)">🎨 {{ showColorPicker ? 'Hide colors' : 'Colors' }}</button>
-            <button (click)="cancelEditPin($event)">Cancel</button>
-            <button [disabled]="!editingPinText.trim()" (click)="saveEditPin(c, $event)">Save</button>
+            <button [disabled]="!!commentActionLoading[c.id]" (click)="cancelEditPin($event)">Cancel</button>
+            <button [disabled]="!editingPinText.trim() || !!commentActionLoading[c.id]" (click)="saveEditPin(c, $event)">
+              <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'save'"></span>
+              <ng-container *ngIf="commentActionLoading[c.id] !== 'save'">Save</ng-container>
+            </button>
           </div>
           <ng-container *ngTemplateOutlet="colorPickerRow; context: {
             boxHex: editingPinBoxHex, textHex: editingPinTextHex, opacity: editingPinOpacity,
@@ -537,7 +714,7 @@
           <!-- Screenshots pane: vertical scrollable list of all screenshots -->
           <ng-container *ngIf="left.docType === 'screenshots'">
             <div class="cv-vlist" [style.--cv-zoom]="left.zoom">
-              <div class="cv-vitem" *ngFor="let it of left.items; let i = index">
+              <div class="cv-vitem" *ngFor="let it of left.items; let i = index; trackBy: trackByPageKey" [hidden]="!itemMatchesSlideFilter('left', i)">
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'left', index: i }"></ng-container>
@@ -555,7 +732,7 @@
           <!-- PDF pane: vertical scrollable list of every rendered page -->
           <ng-container *ngIf="left.docType === 'claude_pdf'">
             <div class="cv-vlist" [style.--cv-zoom]="left.zoom">
-              <div class="cv-vitem" *ngFor="let it of left.items; let i = index">
+              <div class="cv-vitem" *ngFor="let it of left.items; let i = index; trackBy: trackByPageKey" [hidden]="!itemMatchesSlideFilter('left', i)">
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'left', index: i }"></ng-container>
@@ -577,7 +754,7 @@
                (leftPptxCanvas, leftPptxCanvas-1, leftPptxCanvas-2, ...). -->
           <ng-container *ngIf="left.docType === 'claude_ppt' || left.docType === 'gpt_ppt'">
             <div class="cv-vlist" [style.--cv-zoom]="left.zoom">
-              <div class="cv-vitem" *ngFor="let it of left.items; let i = index">
+              <div class="cv-vitem" *ngFor="let it of left.items; let i = index; trackBy: trackByPageKey" [hidden]="!itemMatchesSlideFilter('left', i)">
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'left', index: i }"></ng-container>
@@ -629,7 +806,7 @@
 
           <ng-container *ngIf="right.docType === 'screenshots'">
             <div class="cv-vlist" [style.--cv-zoom]="right.zoom">
-              <div class="cv-vitem" *ngFor="let it of right.items; let i = index">
+              <div class="cv-vitem" *ngFor="let it of right.items; let i = index; trackBy: trackByPageKey" [hidden]="!itemMatchesSlideFilter('right', i)">
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'right', index: i }"></ng-container>
@@ -646,7 +823,7 @@
 
           <ng-container *ngIf="right.docType === 'claude_pdf'">
             <div class="cv-vlist" [style.--cv-zoom]="right.zoom">
-              <div class="cv-vitem" *ngFor="let it of right.items; let i = index">
+              <div class="cv-vitem" *ngFor="let it of right.items; let i = index; trackBy: trackByPageKey" [hidden]="!itemMatchesSlideFilter('right', i)">
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'right', index: i }"></ng-container>
@@ -663,7 +840,7 @@
 
           <ng-container *ngIf="right.docType === 'claude_ppt' || right.docType === 'gpt_ppt'">
             <div class="cv-vlist" [style.--cv-zoom]="right.zoom">
-              <div class="cv-vitem" *ngFor="let it of right.items; let i = index">
+              <div class="cv-vitem" *ngFor="let it of right.items; let i = index; trackBy: trackByPageKey" [hidden]="!itemMatchesSlideFilter('right', i)">
                 <div class="cv-vitem-label">{{ it.label }}</div>
                 <div class="cv-item-frame">
                   <ng-container *ngTemplateOutlet="itemHeaderBlock; context: { side: 'right', index: i }"></ng-container>
@@ -702,28 +879,103 @@
         <div class="cv-comments-empty" *ngIf="!allCommentsFor(activePaneSide).length && !loadingComments">
           No comments yet.
         </div>
-        <div class="cv-comment-item" *ngFor="let c of allCommentsFor(activePaneSide)" [class.resolved]="c.resolved"
-             (click)="scrollToItem(activePaneSide, c.pageIndex)">
+        <div class="cv-comment-item" *ngFor="let c of allCommentsFor(activePaneSide); trackBy: trackByCommentId" [class.resolved]="c.resolved"
+             (click)="editingCommentId !== c.id && scrollToItem(activePaneSide, c.pageIndex)">
           <div class="cv-comment-meta">
             <span class="cv-comment-pagebadge">{{ c.pageLabel }}</span>
             <span class="cv-comment-date">{{ c.created_at }}</span>
           </div>
           <div class="cv-comment-author" *ngIf="c.author">{{ c.author }}</div>
-          <div class="cv-comment-text">{{ c.text }}</div>
-          <div class="cv-comment-actions" *ngIf="canWrite">
-            <button (click)="toggleResolve(c); $event.stopPropagation()">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</button>
-            <button (click)="deleteComment(c); $event.stopPropagation()">🗑 Delete</button>
-          </div>
+
+          <ng-container *ngIf="editingCommentId !== c.id; else panelEditTpl">
+            <div class="cv-comment-text">{{ c.text }}</div>
+            <div class="cv-comment-actions" *ngIf="canWrite">
+              <button
+                class="cv-ac-btn cv-ac-btn-edit"
+                [disabled]="!!commentActionLoading[c.id]"
+                (click)="startEditComment(c); $event.stopPropagation()"
+              >✎ Edit</button>
+              <button
+                class="cv-ac-btn cv-ac-btn-resolve"
+                [disabled]="!!commentActionLoading[c.id]"
+                (click)="toggleResolve(c); $event.stopPropagation()"
+              >
+                <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'resolve'"></span>
+                <ng-container *ngIf="commentActionLoading[c.id] !== 'resolve'">{{ c.resolved ? '↺ Reopen' : '✓ Resolve' }}</ng-container>
+              </button>
+              <button
+                class="cv-ac-btn cv-ac-btn-delete"
+                [disabled]="!!commentActionLoading[c.id]"
+                (click)="deleteComment(c); $event.stopPropagation()"
+              >
+                <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'delete'"></span>
+                <ng-container *ngIf="commentActionLoading[c.id] !== 'delete'">🗑 Delete</ng-container>
+              </button>
+            </div>
+          </ng-container>
+
+          <ng-template #panelEditTpl>
+            <div class="cv-resizable-wrap">
+              <textarea
+                class="cv-comment-editbox"
+                rows="3"
+                [(ngModel)]="editingText"
+                (click)="$event.stopPropagation()"
+                (input)="autoGrow(panelEditBox)"
+                #panelEditBox
+                cvAutoGrow
+                autofocus
+              ></textarea>
+            </div>
+            <div class="cv-comment-actions" (click)="$event.stopPropagation()">
+              <button
+                type="button"
+                class="cv-mic-btn cv-mic-btn-sm"
+                *ngIf="speech.isSupported()"
+                [class.listening]="isDictating('footerEdit')"
+                (click)="toggleDictation('footerEdit')"
+                title="{{ isDictating('footerEdit') ? 'Stop dictation' : 'Dictate comment (Chrome/Edge)' }}"
+              >
+                <span class="cv-mic-rings" *ngIf="isDictating('footerEdit')">
+                  <span></span><span></span><span></span>
+                </span>
+                <span class="cv-mic-icon">{{ isDictating('footerEdit') ? '⏹' : '🎤' }}</span>
+              </button>
+              <span class="cv-ac-editactions-spacer"></span>
+              <button [disabled]="!!commentActionLoading[c.id]" (click)="cancelEditComment()">Cancel</button>
+              <button
+                class="cv-comment-save"
+                [disabled]="!editingText.trim() || !!commentActionLoading[c.id]"
+                (click)="saveEditComment(c)"
+              >
+                <span class="cv-btn-spinner" *ngIf="commentActionLoading[c.id] === 'save'"></span>
+                <ng-container *ngIf="commentActionLoading[c.id] !== 'save'">Save</ng-container>
+              </button>
+            </div>
+          </ng-template>
         </div>
       </div>
 
-      <!-- Comments are now written/edited straight on the page, slide, or
-           screenshot they belong to — this panel is just the overview.
-           Clicking any entry above scrolls to it and re-opens its box. -->
+      <!-- Comments can be written on the page/slide/screenshot itself, or
+           edited/resolved/deleted straight from this panel. -->
       <div class="cv-comments-hint" *ngIf="canWrite">
-        💡 Click <b>💬 Comment</b> on any page, slide, or screenshot above to add or edit a comment there.
+        💡 Click <b>💬 Comment</b> on any page, slide, or screenshot above to add a new comment there — or edit/resolve/delete existing ones right here.
       </div>
     </div>
   </div>
 
 </div>
+
+<!-- ═══════════════ CANVAS SCREEN (triage + compose from PDF/PPTX pane) ═══════════════ -->
+<div class="cv-canvas-loading" *ngIf="canvasOpen && canvasLoading">
+  <div class="cv-canvas-loading-box">Preparing slides for Canvas…</div>
+</div>
+<app-canvas
+  *ngIf="canvasOpen && !canvasLoading"
+  [slides]="canvasSlides"
+  [docLabel]="canvasDocLabel"
+  [topicName]="topic?.topic_code || topic?.name || 'canvas'"
+  (closed)="closeCanvas()"
+  (addComment)="onCanvasAddComment($event)"
+  (editComment)="onCanvasEditComment($event)"
+></app-canvas>

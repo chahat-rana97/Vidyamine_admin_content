@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,15 +6,32 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
+import JSZip from 'jszip';
 
 @Component({
   selector: 'app-chapters',
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './chapters.component.html',
-  styleUrls: ['./chapters.component.css']
+  styleUrls: ['./chapters.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class ChaptersComponent implements OnInit {
+
+  // Config for the CONTENT STATUS column (CL_PDF / QZ / AS / YT)
+  readonly contentStatusFields: { key: 'status_cl_pdf' | 'status_qz' | 'status_as' | 'status_yt'; label: string }[] = [
+    { key: 'status_cl_pdf', label: 'CL_PDF' },
+    { key: 'status_qz', label: 'QZ' },
+    { key: 'status_as', label: 'AS' },
+    { key: 'status_yt', label: 'YT' },
+  ];
+
+  // Detailed View toggle — off by default, hides secondary columns
+  detailedView = false;
+
+  toggleDetailedView() {
+    this.detailedView = !this.detailedView;
+  }
 
   // ── Static cache: survives navigating away and back, so lookups + the
   // full chapter list load only once per app session instead of refetching
@@ -40,6 +57,7 @@ export class ChaptersComponent implements OnInit {
       filterBookId: inst.filterBookId,
       filterStatus: inst.filterStatus,
       filterSequence: inst.filterSequence,
+      contentStatusFilter: inst.contentStatusFilter,
       filterClassOptions: inst.filterClassOptions,
       filterSubjectOptions: inst.filterSubjectOptions,
       filterBookOptions: inst.filterBookOptions,
@@ -59,6 +77,7 @@ export class ChaptersComponent implements OnInit {
     filterBookId: string;
     filterStatus: string;
     filterSequence: string;
+    contentStatusFilter: string;
     filterClassOptions: any[];
     filterSubjectOptions: any[];
     filterBookOptions: any[];
@@ -83,6 +102,7 @@ export class ChaptersComponent implements OnInit {
   filterBookId = '';
   filterStatus = '';
   filterSequence = '';
+  contentStatusFilter = ''; // '' = All, '1' = Done, '2' = Not Done, '0' = Clear — matches if ANY of the 4 CONTENT STATUS fields has this value
 
   // ── Pagination state (client-side, batches of 20) ──
   pageSize = 20;
@@ -125,13 +145,26 @@ export class ChaptersComponent implements OnInit {
   pdfViewerUrl: SafeResourceUrl | null = null;   // set to open the viewer modal
   pdfViewerTitle: string = '';
 
+  // ── Teacher dropdown (sourced from external VidyaMine API, not our DB) ──
+  // We only ever save `teacher` (name) + `teacher_image` (full URL) onto the
+  // chapter row — there's no upload flow anymore, the photo already lives
+  // on VidyaMine's side and we just reference its URL.
+  readonly TEACHER_PHOTOS_API = 'https://rest.vidyamine.com/rest/dev/vm_doot/library/teacher-photos/';
+  teacherOptions: { id: number; name: string; file_url: string }[] = [];
+  loadingTeachers = false;
+
+  // ── Teacher image viewer state ──
+  teacherImageViewerUrl: string | null = null;   // set to open the image viewer modal
+  teacherImageViewerTitle: string = '';
+
   constructor(
     private api: ApiService,
     private toast: ToastService,
     public auth: AuthService,
     private route: ActivatedRoute,
     private router: Router,
-    private sanitizer: DomSanitizer
+    private sanitizer: DomSanitizer,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit() {
@@ -189,6 +222,30 @@ export class ChaptersComponent implements OnInit {
     return ['superadmin', 'admin'].includes(this.auth.user?.role || '');
   }
 
+  /** Editor role: read-mostly view — sees everything but can only use the Topics button.
+   *  Actions column is hidden entirely, and most other controls are view-only for this role. */
+  get isEditor(): boolean {
+    return this.auth.user?.role === 'editor';
+  }
+
+  /** Actions column is hidden completely for editor, even though editor is otherwise canWrite. */
+  get showActionsColumn(): boolean {
+    return this.canWrite && !this.isEditor;
+  }
+
+  /** Swallows a click for controls that must stay view-only for editor
+   *  (screenshot download, file-name link, content-status boxes, active toggle, report),
+   *  and shows a red "Access denied" toast so it's obvious the click did something. */
+  blockIfEditor(event: Event): boolean {
+    if (this.isEditor) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toast.error('Access denied');
+      return true;
+    }
+    return false;
+  }
+
   // ============================================================
   // BOOTSTRAP — load books first, then chapters / form
   // ============================================================
@@ -196,7 +253,7 @@ export class ChaptersComponent implements OnInit {
   private bootstrap() {
     // Restore filters/search/page exactly as the user left them (e.g. after
     // navigating to Topics and clicking Back), before deciding how to load.
-    if (ChaptersComponent.uiState) {
+    if (ChaptersComponent.uiState && !this.isEditor) {
       const s = ChaptersComponent.uiState;
       this.search = s.search;
       this.filterBoardId = s.filterBoardId;
@@ -205,6 +262,7 @@ export class ChaptersComponent implements OnInit {
       this.filterBookId = s.filterBookId;
       this.filterStatus = s.filterStatus;
       this.filterSequence = s.filterSequence;
+      this.contentStatusFilter = s.contentStatusFilter || '';
       this.filterClassOptions = s.filterClassOptions;
       this.filterSubjectOptions = s.filterSubjectOptions;
       this.filterBookOptions = s.filterBookOptions;
@@ -224,6 +282,7 @@ export class ChaptersComponent implements OnInit {
       if (!ChaptersComponent.uiState) {
         this.filterBookOptions = [...this.books];
       }
+      this.lockBoardFilterForEditor();
       this.loadingLookups = false;
 
       if (this.formMode === 'edit' && this.editId) {
@@ -239,65 +298,45 @@ export class ChaptersComponent implements OnInit {
         this.buildSequenceOptions();
         this.applyFilter(false);
       }
+      this.cdr.markForCheck();
       return;
     }
 
+    // ── Lookup fetch, in 3 flat calls instead of 1 + N + M ──
+    // /classes and /subjects both return EVERYTHING when called with no
+    // query params (confirmed against the backend), so there's no need to
+    // loop per-board / per-class making a request each. This alone cuts a
+    // 10-20 request waterfall down to a fixed 3 requests.
     this.loadingLookups = true;
     this.api.get<any>('/boards').subscribe({
       next: r => {
         this.boards = Array.isArray(r?.data) ? r.data : (Array.isArray(r?.boards) ? r.boards : []);
-        this.loadAllClasses(() => {
-          this.loadAllSubjects(() => {
-            this.loadBooks();
-          });
+
+        this.api.get<any>('/classes').subscribe({
+          next: rc => {
+            this.classes = Array.isArray(rc?.data) ? rc.data : (Array.isArray(rc?.classes) ? rc.classes : []);
+
+            this.api.get<any>('/subjects').subscribe({
+              next: rs => {
+                this.subjects = Array.isArray(rs?.data) ? rs.data : (Array.isArray(rs?.subjects) ? rs.subjects : []);
+                this.loadBooks();
+              },
+              error: () => {
+                this.loadingLookups = false;
+                this.toast.error('Failed to load subjects');
+              }
+            });
+          },
+          error: () => {
+            this.loadingLookups = false;
+            this.toast.error('Failed to load classes');
+          }
         });
       },
       error: () => {
         this.loadingLookups = false;
         this.toast.error('Failed to load boards');
       }
-    });
-  }
-
-  private loadAllClasses(done: () => void) {
-    const calls = this.boards.map(b =>
-      new Promise<void>(resolve => {
-        this.api.get<any>(`/classes?board_id=${b.id}`).subscribe({
-          next: r => {
-            const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r?.classes) ? r.classes : []);
-            this.classes.push(...list);
-            resolve();
-          },
-          error: () => resolve()
-        });
-      })
-    );
-    Promise.all(calls).then(() => {
-      const seen = new Map<string, any>();
-      for (const c of this.classes) seen.set(String(c.id), c);
-      this.classes = Array.from(seen.values());
-      done();
-    });
-  }
-
-  private loadAllSubjects(done: () => void) {
-    const calls = this.classes.map(c =>
-      new Promise<void>(resolve => {
-        this.api.get<any>(`/subjects?class_id=${c.id}`).subscribe({
-          next: r => {
-            const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r?.subjects) ? r.subjects : []);
-            this.subjects.push(...list);
-            resolve();
-          },
-          error: () => resolve()
-        });
-      })
-    );
-    Promise.all(calls).then(() => {
-      const seen = new Map<string, any>();
-      for (const s of this.subjects) seen.set(String(s.id), s);
-      this.subjects = Array.from(seen.values());
-      done();
     });
   }
 
@@ -310,6 +349,7 @@ export class ChaptersComponent implements OnInit {
           .sort((a: any, b: any) => (Number(a.sequence_number) || 0) - (Number(b.sequence_number) || 0));
         this.buildBooksByName();
         this.filterBookOptions = [...this.books];
+        this.lockBoardFilterForEditor();
         this.loadingLookups = false;
 
         // Books just became available — route to whatever mode is
@@ -401,6 +441,20 @@ export class ChaptersComponent implements OnInit {
         (Number(a.sequence) - Number(b.sequence))
       );
 
+      // Pre-compute per-row display values ONCE here instead of calling
+      // bookCode()/bookName()/pdfDisplayName()/isActive() from the template.
+      // Template method calls re-run on every change-detection tick (every
+      // click, hover, unrelated state change) — with 20 rows x 4 lookups
+      // each that's 80+ array .find() scans per tick. Storing the result on
+      // the row object turns that into a plain property read.
+      list = list.map((c: any) => ({
+        ...c,
+        _bookCode: c.book_code || this.bookCode(c.book_id) || '-',
+        _bookName: c.book_name || this.bookName(c.book_id) || '-',
+        _pdfDisplay: c.file_name ? this.pdfDisplayName(c.file_name) : null,
+        _isActive: Number(c.is_active) === 1
+      }));
+
       if (this.filterStatus !== '') {
         this.chapters = list.filter((c: any) => String(c.is_active) === this.filterStatus);
       } else {
@@ -417,17 +471,43 @@ export class ChaptersComponent implements OnInit {
       if (noFiltersActive && ChaptersComponent.cache) {
         ChaptersComponent.cache.chapters = this.chapters;
       }
+
+      // Required under OnPush: this callback runs outside Angular's normal
+      // input-binding flow, so explicitly tell Angular this component has
+      // new data to render.
+      this.cdr.markForCheck();
     },
     error: () => {
       this.chapters = [];
       this.filtered = [];
       this.loading = false;
+      this.cdr.markForCheck();
       this.toast.error('Failed to load chapters');
     }
   });
 }
 
+  /** Editors are locked to the CBSE board — call after `boards` is populated to
+   *  pin the filter and pre-populate the cascading class/subject/book options. */
+  private lockBoardFilterForEditor() {
+    if (!this.isEditor || !this.boards.length) return;
+    const cbse = this.boards.find(b =>
+      String(b.code || '').toUpperCase() === 'CBSE' ||
+      String(b.name || '').toUpperCase().includes('CBSE')
+    );
+    if (!cbse) return;
+    this.filterBoardId = cbse.id;
+    this.filterClassOptions = this.classesForBoard(this.filterBoardId);
+    this.filterBookOptions = this.booksFor(this.filterBoardId, '', '');
+  }
+
   onFilterBoardChange() {
+    if (this.isEditor) {
+      // Board filter is locked for editors — the <select> is also disabled
+      // in the template, but this guards against any programmatic change.
+      this.lockBoardFilterForEditor();
+      return;
+    }
     this.filterClassOptions = this.classesForBoard(this.filterBoardId);
     this.filterClassId = '';
     this.filterSubjectOptions = [];
@@ -459,6 +539,10 @@ export class ChaptersComponent implements OnInit {
     this.load();
   }
 
+  onContentStatusFilterChange() {
+    this.applyFilter();
+  }
+
   clearFilters() {
     this.filterBoardId = '';
     this.filterClassId = '';
@@ -466,25 +550,33 @@ export class ChaptersComponent implements OnInit {
     this.filterBookId = '';
     this.filterStatus = '';
     this.filterSequence = '';
+    this.contentStatusFilter = '';
     this.filterClassOptions = [];
     this.filterSubjectOptions = [];
     this.filterBookOptions = [...this.books];
     ChaptersComponent.uiState = null;
+    this.lockBoardFilterForEditor(); // re-pin to CBSE immediately if editor
     this.load();
   }
 
   applyFilter(resetPage: boolean = true) {
     const q   = this.search.trim().toLowerCase();
     const seq = this.filterSequence;
+    const csFilter = this.contentStatusFilter;
 
     this.filtered = this.chapters.filter((c: any) => {
       const haystack = [
         c.chapter_code, c.name, c.abbreviation, c.file_name,
         c.book_name, c.book_code, c.checked_by,
-        c.book_seq_no, c.sequence, c.confidence
+        c.book_seq_no, c.sequence, c.confidence,
+        c.tag, c.description
       ].filter(Boolean).join(' ').toLowerCase();
 
-      return (!q || haystack.includes(q)) && (!seq || String(c.sequence) === seq);
+      const matchesContentStatus = !csFilter || this.contentStatusFields.some(
+        f => String(c[f.key] ?? 0) === csFilter
+      );
+
+      return (!q || haystack.includes(q)) && (!seq || String(c.sequence) === seq) && matchesContentStatus;
     });
 
     if (resetPage) this.currentPage = 1;
@@ -515,6 +607,15 @@ export class ChaptersComponent implements OnInit {
   updatePagedView() {
     const start = (this.currentPage - 1) * this.pageSize;
     this.paged = this.filtered.slice(start, start + this.pageSize);
+  }
+
+  /** trackBy for the main chapters table — lets Angular reuse existing row
+   *  DOM nodes instead of destroying/recreating all of them whenever
+   *  `paged` gets a new array reference (every filter, page change, status
+   *  toggle). Without this every row's <tr> and all its children get torn
+   *  down and rebuilt on each of those updates. */
+  trackByChapterId(index: number, c: any): any {
+    return c.id;
   }
 
   goToPage(page: number) {
@@ -559,9 +660,10 @@ export class ChaptersComponent implements OnInit {
 
   private emptyForm(): any {
     return {
-      book_id: '', sequence: 1, chapter_code: '', name: '',
+      book_id: '', sequence: 1, chapter_code: '', icon: '', name: '',
+      teacher: '', teacher_image: '',
       abbreviation: '', confidence: 'Unverified',
-      file_name: '', book_name: '', checked_by: '', is_active: 1,
+      file_name: '', book_name: '', tag: '', color: '', description: '', checked_by: '', is_active: 1,
       _bookSeqNo: null as number | null, _bookCode: ''
     };
   }
@@ -576,9 +678,11 @@ export class ChaptersComponent implements OnInit {
     this.formClassOptions = [];
     this.formSubjectOptions = [];
     this.formBookOptions = [];
+    this.loadTeacherOptions();
   }
 
   loadChapterForEdit(id: number) {
+    this.loadTeacherOptions();
     this.api.get<any>(`/chapters/${id}`).subscribe({
       next: (r: any) => {
         const c = r?.data || null;
@@ -606,6 +710,7 @@ export class ChaptersComponent implements OnInit {
         }
         this.form.book_id = c.book_id;
         this.updateBookMeta();
+        this.cdr.markForCheck();
       },
       error: () => { this.toast.error('Failed to load chapter'); this.goToList(); }
     });
@@ -683,6 +788,7 @@ export class ChaptersComponent implements OnInit {
         this.form.sequence = maxSeq + 1;
         this.regenerateChapterCode();
         this.regenerateFileName();
+        this.cdr.markForCheck();
       },
       error: () => {}
     });
@@ -807,10 +913,12 @@ export class ChaptersComponent implements OnInit {
         } else {
           this.toast.error(r?.message || 'PDF upload failed');
         }
+        this.cdr.markForCheck();
       },
       error: (err: any) => {
         this.uploadingPdf = false;
         this.toast.error(err?.error?.message || 'PDF upload failed');
+        this.cdr.markForCheck();
       }
     });
   }
@@ -827,6 +935,54 @@ export class ChaptersComponent implements OnInit {
     this.pdfViewerTitle = '';
   }
 
+  // ============================================================
+  // TEACHER DROPDOWN (from external VidyaMine API) + VIEWER
+  // ============================================================
+
+  /** Fetches the teacher list (name + photo URL) from VidyaMine's API. */
+  loadTeacherOptions() {
+    if (this.teacherOptions.length || this.loadingTeachers) return; // fetch once per session
+    this.loadingTeachers = true;
+    fetch(this.TEACHER_PHOTOS_API, {
+      method: 'GET',
+      headers: { 'VidyaMine': 'vidyamine', 'Production': 'doot' }
+    })
+      .then(res => res.json())
+      .then((r: any) => {
+        const list = Array.isArray(r?.data) ? r.data : [];
+        this.teacherOptions = list.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          file_url: t.file_url
+        }));
+        this.loadingTeachers = false;
+        this.cdr.markForCheck();
+      })
+      .catch(() => {
+        this.loadingTeachers = false;
+        this.toast.error('Failed to load teacher list');
+        this.cdr.markForCheck();
+      });
+  }
+
+  /** Fires when a teacher is picked from the dropdown — stores name + full photo URL directly on the form. */
+  onTeacherSelect() {
+    const picked = this.teacherOptions.find(t => t.name === this.form.teacher);
+    this.form.teacher_image = picked?.file_url || '';
+  }
+
+  /** Opens the teacher image viewer popup. teacher_image is already a full URL now. */
+  openTeacherImageViewer(teacherImage: string | null | undefined, title?: string) {
+    if (!teacherImage) { this.toast.error('No teacher image available for this chapter'); return; }
+    this.teacherImageViewerUrl = teacherImage;
+    this.teacherImageViewerTitle = title || 'Teacher Photo';
+  }
+
+  closeTeacherImageViewer() {
+    this.teacherImageViewerUrl = null;
+    this.teacherImageViewerTitle = '';
+  }
+
   save() {
     if (!this.form.book_id || !this.form.chapter_code?.trim() || !this.form.name?.trim()) {
       this.toast.error('Book, Chapter Code and Name are required');
@@ -837,11 +993,17 @@ export class ChaptersComponent implements OnInit {
       book_id:      Number(this.form.book_id),
       sequence:     Number(this.form.sequence || 1),
       chapter_code: this.form.chapter_code.trim(),
+      icon:         this.form.icon?.trim() || null,
       name:         this.form.name.trim(),
+      teacher:      this.form.teacher?.trim() || null,
+      teacher_image: this.form.teacher_image || null,
       abbreviation: this.form.abbreviation?.trim() || null,
       confidence:   this.form.confidence || 'Unverified',
       file_name:    this.form.file_name?.trim() || null,
       book_name:    this.form.book_name || null,
+      tag:          this.form.tag?.trim() || null,
+      color:        this.form.color?.trim() || null,
+      description:  this.form.description?.trim() || null,
       checked_by:   this.form.confidence === 'Verified' ? (this.form.checked_by?.trim() || this.currentUserName) : null,
       is_active:    Number(this.form.is_active)
     };
@@ -860,8 +1022,9 @@ export class ChaptersComponent implements OnInit {
         } else {
           this.toast.error(r?.message || 'Operation failed');
         }
+        this.cdr.markForCheck();
       },
-      error: () => { this.saving = false; this.toast.error('Request failed'); }
+      error: () => { this.saving = false; this.toast.error('Request failed'); this.cdr.markForCheck(); }
     });
   }
 
@@ -884,8 +1047,9 @@ export class ChaptersComponent implements OnInit {
         if (r?.status) { this.toast.success('Chapter deleted'); ChaptersComponent.clearCache(); this.load(); }
         else { this.toast.error(r?.message || 'Delete failed'); }
         this.deleteConfirm = null;
+        this.cdr.markForCheck();
       },
-      error: () => { this.toast.error('Delete failed'); this.deleteConfirm = null; }
+      error: () => { this.toast.error('Delete failed'); this.deleteConfirm = null; this.cdr.markForCheck(); }
     });
   }
 
@@ -895,16 +1059,91 @@ export class ChaptersComponent implements OnInit {
       next: (r: any) => {
         if (r?.status) {
           c.is_active = newVal;
+          c._isActive = newVal === 1;   // keep the pre-computed row field in sync
           this.toast.success('Status updated');
           this.applyFilter();
           if (ChaptersComponent.cache) {
             const cached = ChaptersComponent.cache.chapters.find((x: any) => String(x.id) === String(c.id));
-            if (cached) cached.is_active = newVal;
+            if (cached) { cached.is_active = newVal; cached._isActive = newVal === 1; }
           }
         }
         else { this.toast.error(r?.message || 'Failed to update status'); }
+        this.cdr.markForCheck();
       },
-      error: () => this.toast.error('Failed to update status')
+      error: () => { this.toast.error('Failed to update status'); this.cdr.markForCheck(); }
+    });
+  }
+
+  // ============================================================
+  // CONTENT STATUS (CL_PDF / QZ / AS / YT) — tri-state cycle
+  // 0 = empty, 1 = done (green tick), 2 = not done (red cross)
+  // ============================================================
+
+  csStatusTitle(val: any): string {
+    const n = Number(val);
+    if (n === 1) return 'Done — click to change';
+    if (n === 2) return 'Not done — click to change';
+    return 'Not set — click to choose';
+  }
+
+  // id of the row+field whose dropdown is currently open, e.g. "42_status_qz"
+  openContentStatusKey: string | null = null;
+
+  contentStatusDropdownKey(c: any, field: string): string {
+    return `${c.id}_${field}`;
+  }
+
+  isContentStatusDropdownOpen(c: any, field: string): boolean {
+    return this.openContentStatusKey === this.contentStatusDropdownKey(c, field);
+  }
+
+  toggleContentStatusDropdown(c: any, field: string, event?: MouseEvent) {
+    if (event) { event.stopPropagation(); }
+    const key = this.contentStatusDropdownKey(c, field);
+    this.openContentStatusKey = this.openContentStatusKey === key ? null : key;
+    this.cdr.markForCheck();
+  }
+
+  closeContentStatusDropdown() {
+    if (this.openContentStatusKey !== null) {
+      this.openContentStatusKey = null;
+      this.cdr.markForCheck();
+    }
+  }
+
+  @HostListener('document:click')
+  onDocumentClickCloseCsDropdown() {
+    this.closeContentStatusDropdown();
+  }
+
+  setContentStatus(c: any, field: 'status_cl_pdf' | 'status_qz' | 'status_as' | 'status_yt', value: number, event?: MouseEvent) {
+    if (event) { event.stopPropagation(); }
+    this.openContentStatusKey = null;
+
+    const prev = c[field];
+    if (Number(prev) === value) { this.cdr.markForCheck(); return; }
+
+    c[field] = value; // optimistic UI update
+    this.cdr.markForCheck();
+
+    this.api.put<any>(`/chapters/${c.id}/content-status`, { field, value }).subscribe({
+      next: (r: any) => {
+        if (!r?.status) {
+          c[field] = prev; // revert on failure
+          this.toast.error(r?.message || 'Failed to update content status');
+          this.cdr.markForCheck();
+          return;
+        }
+        if (ChaptersComponent.cache) {
+          const cached = ChaptersComponent.cache.chapters.find((x: any) => String(x.id) === String(c.id));
+          if (cached) { cached[field] = value; }
+        }
+      },
+      error: () => {
+        c[field] = prev; // revert on failure
+        this.toast.error('Failed to update content status');
+        this.cdr.markForCheck();
+      }
     });
   }
 
@@ -912,9 +1151,9 @@ export class ChaptersComponent implements OnInit {
   // NAVIGATION
   // ============================================================
 
-  goToAdd()  { this.router.navigate([], { queryParams: { form: 'add' } }); }
-  goToEdit(c: any) { this.router.navigate([], { queryParams: { form: 'edit', id: c.id } }); }
-  goToList() { this.router.navigate([], { queryParams: {} }); }
+  goToAdd()  { this.router.navigate(['/chapters'], { queryParams: { form: 'add' } }); }
+  goToEdit(c: any) { this.router.navigate(['/chapters'], { queryParams: { form: 'edit', id: c.id } }); }
+  goToList() { this.router.navigate(['/chapters'], { queryParams: {} }); }
   goToTopics(c: any) { this.router.navigate(['/topics'], { queryParams: { chapter_id: c.id } }); }
 
   isActive(c: any): boolean { return Number(c.is_active) === 1; }
@@ -922,4 +1161,272 @@ export class ChaptersComponent implements OnInit {
   // Opens the dedicated full-page Chapter Report screen (separate route,
   // not a modal) for the given chapter.
   goToReport(c: any) { this.router.navigate(['/reports/chapters', c.id]); }
+
+  // ============================================================
+  // EXPORT ALL SCREENSHOTS OF A CHAPTER AS A ZIP (flat, all topics combined)
+  // ============================================================
+  //
+  // Same approach as the Topics screen's export: fetches every topic for
+  // this chapter, pulls each topic's screenshots as blobs from
+  // SCREENSHOT_BASE, and packs them all directly into a single
+  // "<chapter_code>" folder inside the zip (no per-topic subfolder).
+
+  readonly SCREENSHOT_BASE = 'https://uat.vidyamine.com/dev_chahat/getadminvm/Screenshots';
+
+  // Tracks which chapter row is currently exporting, so the icon can show
+  // a spinner/disabled state per-row without a global flag.
+  exportingChapterId: number | null = null;
+
+  screenshotUrl(filename: string): string {
+    return `${this.SCREENSHOT_BASE}/${filename}`;
+  }
+
+  private sanitizeForFsName(name: string): string {
+    return (name || 'untitled').replace(/[\\/:*?"<>|]/g, '_').trim() || 'untitled';
+  }
+
+  private fetchAsBlob(url: string): Promise<Blob> {
+    return fetch(url).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      return res.blob();
+    });
+  }
+
+  private triggerBlobDownload(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }
+
+  async exportChapterScreenshotsZip(c: any) {
+    if (this.exportingChapterId !== null) return;
+
+    this.exportingChapterId = c.id;
+    this.cdr.markForCheck();
+
+    try {
+      const topics: any[] = await new Promise((resolve, reject) => {
+        this.api.get<any>(`/topics?chapter_id=${c.id}`).subscribe({
+          next: (res: any) => resolve(res?.data || res?.topics || res || []),
+          error: (err: any) => reject(err)
+        });
+      });
+
+      const topicsWithShots = (topics || []).filter(t => t._screenshots
+        ? t._screenshots.length
+        : (t.screenshots && JSON.parse(t.screenshots || '[]').length));
+
+      // Normalize: some API shapes give raw JSON string 'screenshots' instead
+      // of pre-parsed '_screenshots' (topics.component hydrates this itself;
+      // here we do it inline since we don't have that hydration step).
+      const normalized = topicsWithShots.map(t => ({
+        ...t,
+        _screenshots: t._screenshots || JSON.parse(t.screenshots || '[]')
+      }));
+
+      if (!normalized.length) {
+        this.toast.error('No screenshots to export for this chapter');
+        return;
+      }
+
+      const zip = new JSZip();
+      const chapterFolderName = this.sanitizeForFsName(c.chapter_code || c.name || `chapter_${c.id}`);
+      const root = zip.folder(chapterFolderName)!;
+
+      for (const t of normalized) {
+        for (const filename of t._screenshots as string[]) {
+          try {
+            const blob = await this.fetchAsBlob(this.screenshotUrl(filename));
+            root.file(filename, blob);
+          } catch (e) {
+            console.error('Failed to fetch screenshot for zip:', filename, e);
+          }
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const downloadName = `${chapterFolderName}_screenshots.zip`;
+      this.triggerBlobDownload(zipBlob, downloadName);
+      this.toast.success('Screenshots exported');
+    } catch (e) {
+      console.error('Chapter zip export failed:', e);
+      this.toast.error('Failed to export screenshots');
+    } finally {
+      this.exportingChapterId = null;
+      this.cdr.markForCheck();
+    }
+  }
+
+  // ============================================================
+  // BULK EXPORT: "Original PDF + comments.md" ZIP for a WHOLE CHAPTER
+  // ============================================================
+  //
+  // Loops every topic in the chapter, and for each one that has comments on
+  // its Claude PDF (Original slot only, for now), builds:
+  //   - the topic's WHOLE original Claude PDF, untouched (no page filtering
+  //     or client-side rebuilding — fetched and shipped as-is)
+  //   - a matching comments.md, with headings keyed to the ORIGINAL PDF's
+  //     page numbers (no remapping needed since the full PDF is included)
+  // and packs each topic's pair, plus its screenshots, into its own
+  // "<topic_code>/" folder inside one chapter-level zip, named:
+  //   <topic_code>_Claude_PDF_original.pdf
+  //   <topic_code>_Claude_PDF_comments.md
+  // Topics with no Claude PDF comments are skipped silently. Runs entirely
+  // in the background — only a per-row spinner + a final toast, no
+  // navigation away from this screen.
+
+  readonly API_BASE = 'https://uat.vidyamine.com/dev_chahat/getadminvm';
+
+  // Tracks which chapter row is currently running a bulk commented-zip
+  // export, so the button can show a spinner/disabled state per-row
+  // without a global flag (separate from exportingChapterId, which is
+  // for the plain screenshots export above).
+  exportingCommentedChapterId: number | null = null;
+
+  /** Same clean-md format as Compare View's buildCommentsMarkdownClean(), grouped by the ORIGINAL PDF page number
+   *  (no remapping — the exported PDF is now the full original file, so its page numbers already match). */
+  private buildCommentsMarkdownCleanForChapter(
+    commentsByPage: Map<number, any[]> // key = original pdf page number (1-based)
+  ): Blob {
+    const lines: string[] = [];
+    lines.push(
+      'This file contains page-wise comments and correction instructions for the PDF slides. ' +
+      'It serves as a review document, highlighting the changes that need to be made on each slide ' +
+      'to improve the content, mathematical notation, alignment, formatting, and overall presentation quality. ' +
+      'Each comment corresponds to a specific page of the PDF and clearly describes the required correction ' +
+      'so that the slides can be updated accurately before finalization.'
+    );
+    lines.push('');
+    lines.push(
+      '*Headings below refer to the page number inside the accompanying original PDF.*'
+    );
+    lines.push('');
+
+    const sortedPages = Array.from(commentsByPage.keys()).sort((a, b) => a - b);
+    for (const pageNum of sortedPages) {
+      lines.push(`## Page ${pageNum}`);
+      lines.push('');
+      for (const c of commentsByPage.get(pageNum)!) {
+        lines.push(String(c.text || '').replace(/\n/g, '  \n'));
+        lines.push('');
+      }
+    }
+
+    return new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+  }
+
+  /**
+   * For one topic: fetches its Claude PDF comments (Original slot,
+   * doc_type='claude_pdf') via the authenticated ApiService (raw fetch()
+   * has no auth headers/cookies and will 401/404 against this API), and if
+   * any exist, downloads the WHOLE original Claude PDF as-is (no page
+   * filtering/rebuilding) and returns it alongside the comments markdown.
+   * Returns null if the topic has no Claude PDF or no comments on it.
+   */
+  private async buildTopicCommentedPair(topic: any): Promise<{ pdfBlob: Blob; mdBlob: Blob } | null> {
+    if (!topic?.slide_claude_pdf) return null; // no Claude PDF (Original) attached
+
+    const comments: any[] = await new Promise((resolve, reject) => {
+      this.api.get<any>(`/topics/${topic.id}/comparison-comments?doc_type=claude_pdf`).subscribe({
+        next: (res: any) => resolve(res?.data || []),
+        error: (err: any) => reject(err)
+      });
+    });
+    if (!comments.length) return null;
+
+    // page_key for PDF panes is "page-N" (1-based) — see Compare View's loadPdfPane().
+    const commentsByPage = new Map<number, any[]>();
+    for (const c of comments) {
+      const m = /^page-(\d+)$/.exec(c.page_key || '');
+      if (!m) continue;
+      const pageNum = Number(m[1]);
+      if (!commentsByPage.has(pageNum)) commentsByPage.set(pageNum, []);
+      commentsByPage.get(pageNum)!.push(c);
+    }
+    if (!commentsByPage.size) return null;
+
+    // Ship the full original PDF untouched — no pdf.js rendering / page rebuilding.
+    const pdfBlob = await this.fetchAsBlob(
+      `${this.API_BASE}/topics/${topic.id}/slide-doc/claude_pdf`
+    );
+    const mdBlob = this.buildCommentsMarkdownCleanForChapter(commentsByPage);
+
+    return { pdfBlob, mdBlob };
+  }
+
+  /** Entry point for the per-chapter-row bulk export button. */
+  async exportChapterCommentedZip(c: any) {
+    if (this.exportingCommentedChapterId !== null) return;
+
+    this.exportingCommentedChapterId = c.id;
+    this.cdr.markForCheck();
+
+    try {
+      const topics: any[] = await new Promise((resolve, reject) => {
+        this.api.get<any>(`/topics?chapter_id=${c.id}`).subscribe({
+          next: (res: any) => resolve(res?.data || res?.topics || res || []),
+          error: (err: any) => reject(err)
+        });
+      });
+
+      if (!topics.length) {
+        this.toast.error('No topics found in this chapter');
+        return;
+      }
+
+      const zip = new JSZip();
+      const chapterFolderName = this.sanitizeForFsName(c.chapter_code || c.name || `chapter_${c.id}`);
+      const root = zip.folder(chapterFolderName)!;
+
+      let includedCount = 0;
+      for (const t of topics) {
+        try {
+          const pair = await this.buildTopicCommentedPair(t);
+          if (!pair) continue; // no Claude PDF / no comments — skip silently
+          const topicFolderName = this.sanitizeForFsName(t.topic_code || t.name || `topic_${t.id}`);
+          const topicFolder = root.folder(topicFolderName)!;
+          topicFolder.file(`${topicFolderName}_Claude_PDF_original.pdf`, pair.pdfBlob);
+          topicFolder.file(`${topicFolderName}_Claude_PDF_comments.md`, pair.mdBlob);
+
+          // Also drop in the topic's own screenshot(s), same source as the
+          // plain screenshots export above — 'screenshots' may arrive as a
+          // raw JSON string (unhydrated here), '_screenshots' if pre-parsed.
+          const topicScreenshots: string[] = t._screenshots || JSON.parse(t.screenshots || '[]');
+          for (const filename of topicScreenshots) {
+            try {
+              const shotBlob = await this.fetchAsBlob(this.screenshotUrl(filename));
+              topicFolder.file(filename, shotBlob);
+            } catch (e) {
+              console.error('Failed to fetch topic screenshot for zip:', filename, e);
+            }
+          }
+
+          includedCount++;
+        } catch (e) {
+          console.error('Failed to export commented pair for topic:', t?.id, e);
+        }
+      }
+
+      if (!includedCount) {
+        this.toast.error('No commented Claude PDFs found in this chapter');
+        return;
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const downloadName = `${chapterFolderName}_commented_slides.zip`;
+      this.triggerBlobDownload(zipBlob, downloadName);
+      this.toast.success(`Exported ${includedCount} topic${includedCount === 1 ? '' : 's'} with comments`);
+    } catch (e) {
+      console.error('Chapter commented-zip export failed:', e);
+      this.toast.error('Failed to export commented slides');
+    } finally {
+      this.exportingCommentedChapterId = null;
+      this.cdr.markForCheck();
+    }
+  }
 }

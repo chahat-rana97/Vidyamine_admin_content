@@ -668,7 +668,6 @@
 .panel-link.is-restricted,
 .btn-ghost.is-restricted {
   cursor: not-allowed;
-  opacity: 0.55;
 }
 .stat-card.is-restricted:hover {
   transform: none;

@@ -46,7 +46,13 @@
   <div class="filter-bar">
     <div class="filter-field filter-field--sm">
       <label>BOARD</label>
-      <select class="filter-select" [(ngModel)]="filterBoardId" (ngModelChange)="onFilterBoardChange()">
+      <select
+        class="filter-select"
+        [(ngModel)]="filterBoardId"
+        (ngModelChange)="onFilterBoardChange()"
+        [disabled]="isEditor"
+        [title]="isEditor ? 'Locked to CBSE' : ''"
+      >
         <option value="">All Boards</option>
         <option *ngFor="let b of boards" [value]="b.id">{{ b.name || b.code }}</option>
       </select>
@@ -115,9 +121,33 @@
         <div class="table-subtitle">Search and sequence filters update instantly</div>
       </div>
       <div class="table-header-right">
+        <select
+          class="filter-select cs-filter-select"
+          [(ngModel)]="contentStatusFilter"
+          (ngModelChange)="onContentStatusFilterChange()"
+          title="Filter by content status"
+        >
+          <option value="">All Status</option>
+          <option value="1">Done</option>
+          <option value="2">Not Done</option>
+          <option value="0">Clear</option>
+        </select>
+
+        <button
+          type="button"
+          class="detailed-view-toggle"
+          [class.detailed-view-toggle--on]="detailedView"
+          (click)="toggleDetailedView()"
+          [title]="detailedView ? 'Hide extra columns' : 'Show all columns'"
+        >
+          <span class="detailed-view-toggle__switch"></span>
+          <span class="detailed-view-toggle__label">Detailed View</span>
+        </button>
+
         <div class="table-count-pill">
           Showing {{ filtered.length ? (((currentPage - 1) * pageSize) + 1) : 0 }}–{{ ((currentPage - 1) * pageSize) + paged.length }} of {{ filtered.length }}
         </div>
+
         <div class="pagination-bar pagination-bar--top" *ngIf="filtered.length">
           <button class="pg-btn" (click)="prevPage()" [disabled]="currentPage === 1">‹ Prev</button>
 
@@ -140,33 +170,40 @@
         <thead>
           <tr>
             <th class="col-idx">#</th>
-            <th class="col-bseq">BOOK SEQ</th>
-            <th class="col-bookcode">BOOK CODE</th>
-            <th class="col-seq">SEQ</th>
+            <th class="col-bseq" *ngIf="detailedView">BOOK SEQ</th>
+            <th class="col-bookcode" *ngIf="detailedView">BOOK CODE</th>
+            <th class="col-seq">CHAPTER NO</th>
             <th class="col-chaptercode">CHAPTER CODE</th>
             <th class="col-name">NAME</th>
-            <th class="col-abb">ABB</th>
+            <th class="col-topicroot">TOPIC ROOT</th>
+            <th class="col-contentstatus">CONTENT STATUS</th>
+            <th class="col-teacher" *ngIf="detailedView">TEACHER</th>
+            <th class="col-abb" *ngIf="detailedView">ABB</th>
             <th class="col-confidence">CONFIDENCE</th>
             <th class="col-filename">FILE NAME</th>
-            <th class="col-bookname">BOOK NAME</th>
-            <th class="col-checkedby">CHECKED BY</th>
-            <th>STATUS</th>
-            <th *ngIf="canViewAudit">CREATED BY</th>
+            <th class="col-bookname" *ngIf="detailedView">BOOK NAME</th>
+            <th class="col-icon" *ngIf="detailedView">ICON</th>
+            <th class="col-tag" *ngIf="detailedView">TAG</th>
+            <th class="col-color" *ngIf="detailedView">COLOR</th>
+            <th class="col-description" *ngIf="detailedView">DESCRIPTION</th>
+            <th class="col-checkedby" *ngIf="detailedView">CHECKED BY</th>
+            <th class="col-status">STATUS</th>
+            <th *ngIf="canViewAudit && detailedView">CREATED BY</th>
             <th *ngIf="canViewAudit">UPDATED BY</th>
             <th class="col-report">REPORT</th>
-            <th *ngIf="canWrite" class="col-actions">ACTIONS</th>
+            <th *ngIf="showActionsColumn" class="col-actions">ACTIONS</th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let c of paged; let i = index">
+          <tr *ngFor="let c of paged; let i = index; trackBy: trackByChapterId">
             <td class="idx">{{ ((currentPage - 1) * pageSize) + i + 1 }}</td>
 
-            <td class="center">
+            <td class="center" *ngIf="detailedView">
               <span class="seq-badge">{{ c.book_seq_no ?? '-' }}</span>
             </td>
 
-            <td>
-              <code class="code-pill code-pill--highlight">{{ c.book_code || bookCode(c.book_id) || '-' }}</code>
+            <td *ngIf="detailedView">
+              <code class="code-pill code-pill--highlight">{{ c._bookCode }}</code>
             </td>
 
             <td class="center">
@@ -181,7 +218,87 @@
               <div class="entity-name">{{ c.name || '-' }}</div>
             </td>
 
-            <td>
+            <td class="center col-topicroot">
+              <div class="action-btns">
+                <button class="btn btn-topics btn-sm" (click)="goToTopics(c)" title="Manage Topics">🗂 Topics</button>
+                <button
+                  class="report-icon-btn"
+                  [class.btn-disabled]="isEditor"
+                  (click)="isEditor ? blockIfEditor($event) : exportChapterScreenshotsZip(c)"
+                  [disabled]="!isEditor && exportingChapterId !== null"
+                  [title]="isEditor ? 'Access denied' : (exportingChapterId === c.id ? 'Exporting…' : 'Download all screenshots (zip)')"
+                >
+                  <svg *ngIf="exportingChapterId !== c.id" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span *ngIf="exportingChapterId === c.id" class="spinner-sm"></span>
+                </button>
+              </div>
+            </td>
+
+            <td class="content-status-cell">
+              <div class="cs-grid">
+                <div class="cs-col" *ngFor="let f of contentStatusFields">
+                  <div class="cs-lbl">{{ f.label }}</div>
+                  <button
+                    type="button"
+                    class="cs-box"
+                    [class.btn-disabled]="isEditor"
+                    [ngClass]="'cs-box--' + c[f.key]"
+                    (click)="isEditor ? blockIfEditor($event) : toggleContentStatusDropdown(c, f.key, $event)"
+                    [title]="isEditor ? 'Access denied' : csStatusTitle(c[f.key])"
+                  >
+                    <svg *ngIf="c[f.key] == 1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <svg *ngIf="c[f.key] == 2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                  </button>
+
+                  <!-- Dropdown: only offers the states other than the current one -->
+                  <div class="cs-dropdown" *ngIf="isContentStatusDropdownOpen(c, f.key)" (click)="$event.stopPropagation()">
+                    <button
+                      type="button"
+                      class="cs-dropdown-opt cs-dropdown-opt--done"
+                      *ngIf="c[f.key] != 1"
+                      (click)="setContentStatus(c, f.key, 1, $event)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      Done
+                    </button>
+                    <button
+                      type="button"
+                      class="cs-dropdown-opt cs-dropdown-opt--not-done"
+                      *ngIf="c[f.key] != 2"
+                      (click)="setContentStatus(c, f.key, 2, $event)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                      Not Done
+                    </button>
+                    <button
+                      type="button"
+                      class="cs-dropdown-opt cs-dropdown-opt--clear"
+                      *ngIf="c[f.key] != 0"
+                      (click)="setContentStatus(c, f.key, 0, $event)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2"/></svg>
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </td>
+
+            <td *ngIf="detailedView">
+              <div class="teacher-cell">
+                <span class="teacher-name">{{ c.teacher || '—' }}</span>
+                <span
+                  class="teacher-image-link"
+                  *ngIf="c.teacher_image"
+                  (click)="openTeacherImageViewer(c.teacher_image, c.teacher)"
+                  title="Click to view teacher image"
+                >🖼 View Image</span>
+              </div>
+            </td>
+
+            <td *ngIf="detailedView">
               <span class="badge-abb" *ngIf="c.abbreviation">{{ c.abbreviation }}</span>
               <span class="text-muted" *ngIf="!c.abbreviation">—</span>
             </td>
@@ -195,49 +312,88 @@
             <td class="text-muted font-mono">
               <span
                 class="pdf-filename-link"
+                [class.btn-disabled]="isEditor"
                 *ngIf="c.file_name"
-                (click)="openPdfViewer(c.file_name)"
-                title="Click to view PDF"
-              >{{ pdfDisplayName(c.file_name) }}</span>
+                (click)="isEditor ? blockIfEditor($event) : openPdfViewer(c.file_name)"
+                [title]="isEditor ? 'Access denied' : 'Click to view PDF'"
+              >{{ c._pdfDisplay }}</span>
               <span *ngIf="!c.file_name">—</span>
             </td>
 
-            <td class="text-muted">{{ c.book_name || bookName(c.book_id) || '-' }}</td>
+            <td class="text-muted" *ngIf="detailedView">{{ c._bookName }}</td>
 
-            <td class="text-muted">{{ c.checked_by || '—' }}</td>
+            <td class="center" *ngIf="detailedView">
+              <span class="icon-cell" *ngIf="c.icon">{{ c.icon }}</span>
+              <span class="text-muted" *ngIf="!c.icon">—</span>
+            </td>
+
+            <td *ngIf="detailedView">
+              <span class="badge-tag" *ngIf="c.tag">{{ c.tag }}</span>
+              <span class="text-muted" *ngIf="!c.tag">—</span>
+            </td>
+
+            <td class="center" *ngIf="detailedView">
+              <span class="color-swatch" *ngIf="c.color" [style.background]="c.color" [title]="c.color"></span>
+              <span class="text-muted" *ngIf="!c.color">—</span>
+            </td>
+
+            <td *ngIf="detailedView">
+              <span class="description-cell" *ngIf="c.description" [title]="c.description">{{ c.description }}</span>
+              <span class="text-muted" *ngIf="!c.description">—</span>
+            </td>
+
+            <td class="text-muted" *ngIf="detailedView">{{ c.checked_by || '—' }}</td>
 
             <td>
               <button
                 class="status-toggle-badge"
-                [ngClass]="isActive(c) ? 'status-active' : 'status-inactive'"
-                (click)="toggleStatus(c)"
-                [title]="isActive(c) ? 'Click to deactivate' : 'Click to activate'"
+                [class.btn-disabled]="isEditor"
+                [ngClass]="c._isActive ? 'status-active' : 'status-inactive'"
+                (click)="isEditor ? blockIfEditor($event) : toggleStatus(c)"
+                [title]="isEditor ? 'Access denied' : (c._isActive ? 'Click to deactivate' : 'Click to activate')"
               >
-                {{ isActive(c) ? 'Active' : 'Inactive' }}
+                {{ c._isActive ? 'Active' : 'Inactive' }}
               </button>
             </td>
 
-            <td class="text-muted" *ngIf="canViewAudit">{{ c.created_by || '—' }}</td>
+            <td class="text-muted" *ngIf="canViewAudit && detailedView">{{ c.created_by || '—' }}</td>
             <td class="text-muted" *ngIf="canViewAudit">{{ c.updated_by || '—' }}</td>
 
             <td class="center">
-              <button class="report-icon-btn" (click)="goToReport(c)" title="View chapter report">
+              <button
+                class="report-icon-btn"
+                [class.btn-disabled]="isEditor"
+                (click)="isEditor ? blockIfEditor($event) : goToReport(c)"
+                [title]="isEditor ? 'Access denied' : 'View chapter report'"
+              >
                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M4 20V10M10 20V4M16 20V13M22 20H2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </button>
             </td>
 
-            <td *ngIf="canWrite">
+            <td *ngIf="showActionsColumn">
               <div class="action-btns">
-                <button class="btn btn-topics btn-sm" (click)="goToTopics(c)" title="Manage Topics">🗂 Topics</button>
-                <button class="btn btn-edit btn-sm" (click)="goToEdit(c)">Edit</button>
+                <button
+                  class="report-icon-btn"
+                  (click)="exportChapterCommentedZip(c)"
+                  [disabled]="exportingCommentedChapterId !== null"
+                  [title]="exportingCommentedChapterId === c.id ? 'Exporting commented slides…' : 'Download commented Claude PDFs + comments.md for every topic (zip)'"
+                >
+                  <svg *ngIf="exportingCommentedChapterId !== c.id" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 12h6M9 16h6M9 8h1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-6-5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M13 3v5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span *ngIf="exportingCommentedChapterId === c.id" class="spinner-sm"></span>
+                </button>
+                <button class="btn btn-edit btn-sm" (click)="goToEdit(c)">✎ Edit</button>
                 <button
                   class="btn btn-danger btn-sm"
                   (click)="confirmDelete(c)"
                   [class.btn-disabled]="!canDelete"
                   [title]="canDelete ? 'Delete this chapter' : 'Access denied'"
-                >Delete</button>
+                >🗑 Delete</button>
               </div>
             </td>
           </tr>
@@ -250,7 +406,7 @@
         <div class="empty-icon">▤</div>
         <p>No chapters found{{ search ? ' for "' + search + '"' : '' }}</p>
         <button class="btn btn-primary btn-sm" (click)="goToAdd()" *ngIf="canWrite">
-          Add First Chapter
+          + Add First Chapter
         </button>
       </div>
     </ng-template>
@@ -294,7 +450,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" (click)="deleteConfirm = null">Cancel</button>
-      <button class="btn btn-danger" (click)="doDelete()">Delete</button>
+      <button class="btn btn-danger" (click)="doDelete()">🗑 Delete</button>
     </div>
   </div>
 </div>
@@ -409,10 +565,74 @@
         <span class="field-hint">Format: <code>Seq_BookCode</code> e.g. <strong>01_KEY_EN_CBSEC_...</strong></span>
       </div>
 
+      <div class="form-group">
+        <label>
+          Icon / Emoji
+          <small class="label-note">Optional</small>
+        </label>
+        <input type="text" [(ngModel)]="form.icon"
+               placeholder="e.g. 📐" maxlength="8"
+               class="icon-input" />
+        <span class="field-hint">Paste any emoji — shown as the chapter's icon in the list</span>
+      </div>
+
       <div class="form-group full">
         <label>Chapter Name <span class="required">*</span></label>
         <input type="text" [(ngModel)]="form.name" (input)="onNameInput()"
                placeholder="e.g. Matrubhumi (मातृभूमि)" />
+      </div>
+
+      <div class="form-group full">
+        <label>
+          Description
+          <small class="label-note">Optional</small>
+        </label>
+        <textarea [(ngModel)]="form.description" rows="3"
+                  placeholder="A short description of this chapter…"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>
+          Tag
+          <small class="label-note">Optional</small>
+        </label>
+        <input type="text" [(ngModel)]="form.tag"
+               placeholder="e.g. exam-focus" maxlength="60" />
+      </div>
+
+      <div class="form-group">
+        <label>
+          Color
+          <small class="label-note">Optional</small>
+        </label>
+        <div class="color-picker-row">
+          <input type="color" [ngModel]="form.color || '#6366F1'"
+                 (ngModelChange)="form.color = $event" class="color-swatch-input" />
+          <input type="text" [(ngModel)]="form.color"
+                 placeholder="#6366F1" maxlength="7"
+                 style="font-family: monospace; font-size: 12px;" class="color-hex-input" />
+          <button type="button" class="code-regen" *ngIf="form.color" (click)="form.color = ''">✕ Clear</button>
+        </div>
+        <span class="field-hint">Pick a color, or type a hex value directly</span>
+      </div>
+
+      <div class="form-group full">
+        <label>Teacher</label>
+        <select [(ngModel)]="form.teacher" (ngModelChange)="onTeacherSelect()" [disabled]="loadingTeachers">
+          <option value="" disabled>{{ loadingTeachers ? 'Loading teachers…' : 'Select teacher' }}</option>
+          <option *ngFor="let t of teacherOptions" [value]="t.name">{{ t.name }}</option>
+        </select>
+
+        <!-- ── Teacher photo preview (URL comes straight from the teacher API) ── -->
+        <div class="pdf-upload-row" *ngIf="form.teacher_image">
+          <button
+            type="button"
+            class="btn btn-edit btn-sm"
+            (click)="openTeacherImageViewer(form.teacher_image, form.teacher)"
+          >👁 View Image</button>
+
+          <span class="pdf-current-name">{{ form.teacher_image }}</span>
+        </div>
       </div>
 
       <div class="form-group">
@@ -542,5 +762,20 @@
       <button class="pdf-viewer-close" (click)="closePdfViewer()" title="Close">✕</button>
     </div>
     <iframe class="pdf-viewer-frame" [src]="pdfViewerUrl" title="PDF Viewer"></iframe>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- TEACHER IMAGE VIEWER MODAL -->
+<!-- ============================================================ -->
+<div class="modal-overlay pdf-viewer-overlay" *ngIf="teacherImageViewerUrl" (click)="closeTeacherImageViewer()">
+  <div class="pdf-viewer-box teacher-image-viewer-box" (click)="$event.stopPropagation()">
+    <div class="pdf-viewer-header">
+      <span class="pdf-viewer-title">{{ teacherImageViewerTitle }}</span>
+      <button class="pdf-viewer-close" (click)="closeTeacherImageViewer()" title="Close">✕</button>
+    </div>
+    <div class="teacher-image-viewer-body">
+      <img [src]="teacherImageViewerUrl" alt="Teacher photo" />
+    </div>
   </div>
 </div>

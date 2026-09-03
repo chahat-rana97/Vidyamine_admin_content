@@ -54,18 +54,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       groupLabel: 'Master Data',
       items: [
-        { label: 'Manage Boards',      icon: 'icon-boards',      route: '/boards' },
-        { label: 'Manage Classes',     icon: 'icon-classes',     route: '/classes' },
-        { label: 'Manage Subjects',    icon: 'icon-subjects',    route: '/subjects' },
-        { label: 'Manage Publisher',   icon: 'icon-publisher',   route: '/publishers' },
-        { label: 'Manage Languages',   icon: 'icon-languages',   route: '/languages' },
-        { label: 'Manage Course Type', icon: 'icon-course-type', route: '/course-types' },
+        { label: 'Manage Boards',      icon: 'icon-boards',      route: '/boards', restrictedRoles: ['editor'] },
+        { label: 'Manage Classes',     icon: 'icon-classes',     route: '/classes', restrictedRoles: ['editor'] },
+        { label: 'Manage Subjects',    icon: 'icon-subjects',    route: '/subjects', restrictedRoles: ['editor'] },
+        { label: 'Manage Publisher',   icon: 'icon-publisher',   route: '/publishers', restrictedRoles: ['editor'] },
+        { label: 'Manage Languages',   icon: 'icon-languages',   route: '/languages', restrictedRoles: ['editor'] },
+        { label: 'Manage Course Type', icon: 'icon-course-type', route: '/course-types', restrictedRoles: ['editor'] },
       ]
     },
     {
       groupLabel: 'Content',
       items: [
-        { label: 'Manage Books',    icon: 'icon-books',    route: '/books' },
+        { label: 'Manage Books',    icon: 'icon-books',    route: '/books', restrictedRoles: ['editor'] },
         { label: 'Manage Chapters', icon: 'icon-chapters', route: '/chapters' },
       ]
     },
@@ -74,8 +74,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Content Report', icon: 'icon-reports', route: '/reports/content', restrictedRoles: ['editor'] },
         { label: 'Assignment Report', icon: 'icon-reports', route: '/reports/assignments', restrictedRoles: ['editor', 'admin'] },
-        { label: 'Chapter Report', icon: 'icon-reports', route: '/reports/chapter-coverage' },
-        { label: 'MIS Report', icon: 'icon-reports', route: '/reports/mis' },
+        { label: 'Chapter Report', icon: 'icon-reports', route: '/reports/chapter-coverage', restrictedRoles: ['editor'] },
+        { label: 'MIS Report', icon: 'icon-reports', route: '/reports/mis', restrictedRoles: ['editor'] },
       ]
     }
   ];

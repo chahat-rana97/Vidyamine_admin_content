@@ -1,0 +1,501 @@
+<div class="cvs-overlay">
+  <!-- ═══════════════ TOP BAR ═══════════════ -->
+  <div class="cvs-top">
+    <button class="cvs-back" (click)="close()" title="Back">
+      <span class="cvs-back-arrow">←</span> Back
+    </button>
+    <code class="cvs-topiccode" *ngIf="topicName">{{ topicName }}</code>
+    <div class="cvs-sp"></div>
+    <h2 class="cvs-title">📋 Canvas — {{ docLabel }}</h2>
+    <div class="cvs-sp"></div>
+    <button [disabled]="true" [title]="aiDisabledTitle">⚙ API keys</button>
+  </div>
+
+  <div class="cvs-2">
+    <!-- ═══════════════ LEFT: source slides, triaged ═══════════════ -->
+    <div class="cvs-left">
+      <div class="cvs-tbar">
+        <span class="cvs-tbar-label">{{ slides.length }} slide(s) from {{ docLabel }}</span>
+        <span class="cvs-sp"></span>
+        <button class="act claude" [disabled]="true" [title]="aiDisabledTitle">▶ Stage 1 · Claude <span class="n">{{ selectedCommentedCount }}</span></button>
+        <button class="act chat" [disabled]="true" [title]="aiDisabledTitle">▶ Stage 2 · GPT <span class="n">{{ selectedFinalsCount }}</span></button>
+      </div>
+
+      <div class="cvs-apirow">
+        <span class="lb">🌐 Select Universal Prompt:</span>
+        <select
+          style="height: 26px; padding: 0 20px 0 8px; border: 1px dashed #7c3aed; border-radius: 4px; background: rgba(124, 58, 237, 0.15); color: var(--text-primary, #ffffff); font-size: 11px; font-weight: 600; cursor: pointer; outline: none; max-width: 240px;"
+          [value]="selectedVaultPromptId"
+          (change)="onVaultPromptSelect($event)"
+          title="Select a prompt template from Prompt Vault V2 to insert into AI prompt">
+          <option value="" disabled>⚡ Select Universal Prompt</option>
+          <option value="none">❌ -- None / Clear Prompt --</option>
+          <option *ngFor="let p of vaultPrompts" [value]="p.id">
+            {{ p.name }}{{ p.purpose ? ' — ' + p.purpose : '' }}
+          </option>
+        </select>
+        <span class="peek" (click)="togglePromptModal()" title="View or edit active universal prompt template">view / edit prompt</span>
+        <span class="cvs-sp"></span>
+        <span class="cvs-apirow-hint"><b>Stage 1</b> = Claude (commented) · <b>Stage 2</b> = GPT (finals)</span>
+      </div>
+
+      <div class="cvs-gridwrap">
+        <div class="cvs-grid">
+
+          <!-- COMMENTED (Stage 1 · Claude) -->
+          <div class="cvs-sec commented">
+            <div class="cvs-sechead" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span class="cvs-sectitle">Stage 1 · Claude</span>
+              <span class="cvs-secsub">Commented slides</span>
+              <span class="cvs-secn">{{ commented.length }}</span>
+              <div style="margin-left: auto; display: flex; gap: 6px;">
+                <button class="act claude" style="padding: 4px 8px; font-size: 11px; font-weight: 700; border-radius: 4px; border: none; background: #7c3aed; color: #fff; cursor: pointer;" 
+                  [disabled]="runningStage1 || !commented.length" 
+                  (click)="runStage1Batch()" 
+                  title="Run Stage 1 AI generation for all commented slides">
+                  {{ runningStage1 ? 'Processing…' : '▶ Run Stage 1' }}
+                </button>
+                <button style="padding: 4px 8px; font-size: 11px; font-weight: 700; border-radius: 4px; border: none; background: #10b981; color: #fff; cursor: pointer;" 
+                  (click)="moveAllAiSlidesToStage2()" 
+                  title="Move all AI generated slides in Stage 1 to Stage-2 at once">
+                  ➡ Move all AI to Stage-2
+                </button>
+              </div>
+            </div>
+            <div class="cvs-secgrid">
+              <div class="cvs-secempty" *ngIf="!commented.length">none</div>
+              <div
+                class="cvs-mini commented"
+                *ngFor="let s of commented; trackBy: trackByPageKey"
+                draggable="true"
+                (dragstart)="onSourceDragStart($event, s)"
+                (click)="openZoomForSource(s)"
+                title="Click to enlarge · drag to canvas"
+              >
+                <div class="cvs-minithumb">
+                  <img [src]="s.thumb" alt="" />
+                  <span class="cvs-pagenum commented">{{ getPageNumber(s.label) }}</span>
+                  <span class="cvs-badge commented">{{ s.comments.length }} comment{{ s.comments.length === 1 ? '' : 's' }}</span>
+                  <input type="checkbox" class="cvs-minisel" [checked]="isLeftSelected(s.pageKey)"
+                         (click)="$event.stopPropagation()" (change)="setLeftSelected(s.pageKey, $any($event.target).checked)"
+                         title="Include in API run" />
+                </div>
+                <!-- Real, editable comment thread — single scrollable box, each comment its own colored card -->
+                <div class="cvs-cmtlist" (click)="$event.stopPropagation()">
+                  <div class="cvs-cmt" [class]="'clr-' + (i % 6)" *ngFor="let c of s.comments; let i = index">
+                    <ng-container *ngIf="editingCommentId !== c.id; else editCmtTpl">
+                      <div class="cvs-cmt-text">{{ c.text }}</div>
+                      <div class="cvs-cmt-meta">
+                        <span>{{ c.author || 'Unknown' }}</span>
+                        <button class="cvs-cmt-editbtn" (click)="startEditComment(c, $event)">✎ Edit</button>
+                      </div>
+                    </ng-container>
+                    <ng-template #editCmtTpl>
+                      <textarea class="cvs-cmt-editbox" [(ngModel)]="editingCommentText" (click)="$event.stopPropagation()"></textarea>
+                      <div class="cvs-cmt-editbtns">
+                        <button (click)="cancelEditComment($event)">Cancel</button>
+                        <button class="green" [disabled]="!editingCommentText.trim()" (click)="saveEditComment($event)">Save</button>
+                      </div>
+                    </ng-template>
+                  </div>
+                </div>
+
+                <div class="cvs-cmtadd">
+                  <ng-container *ngIf="activeMiniComposerKey !== s.pageKey; else composerTpl">
+                    <button class="cvs-cmtaddbtn" (click)="openMiniComposer(s, $event)">＋ Add comment</button>
+                  </ng-container>
+                  <ng-template #composerTpl>
+                    <textarea class="cvs-cmt-editbox" [(ngModel)]="newMiniCommentText" placeholder="Write a comment…" (click)="$event.stopPropagation()"></textarea>
+                    <div class="cvs-cmt-editbtns">
+                      <button (click)="cancelMiniComposer($event)">Cancel</button>
+                      <button class="green" [disabled]="!newMiniCommentText.trim()" (click)="submitMiniComment(s, $event)">Add</button>
+                    </div>
+                  </ng-template>
+                </div>
+
+                <!-- Stage 1 Slide Action Bar: Make this, Preview, Move to Stage-2 -->
+                <div style="display: flex; flex-direction: column; gap: 4px; padding: 6px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.2); border-radius: 0 0 6px 6px; margin-top: 4px;" (click)="$event.stopPropagation()">
+                  <div style="display: flex; gap: 4px;">
+                    <button (click)="makeSingleSlideStage1(s)" [disabled]="stage1SingleLoading[s.pageKey]" 
+                      style="flex: 1; padding: 4px 6px; background: #7c3aed; color: #fff; border: none; border-radius: 4px; font-size: 10.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                      <span>⚡</span> {{ stage1SingleLoading[s.pageKey] ? 'Making...' : 'Make this' }}
+                    </button>
+                    <button *ngIf="s.aiGeneratedThumb" (click)="openGeneratedPreview(s.aiGeneratedThumb)" 
+                      style="padding: 4px 8px; background: #2563eb; color: #fff; border: none; border-radius: 4px; font-size: 10.5px; font-weight: 700; cursor: pointer;" title="Preview AI generated slide">
+                      👁 Preview
+                    </button>
+                  </div>
+                  <button *ngIf="s.aiGeneratedThumb" (click)="moveToStage2(s)" 
+                    style="width: 100%; padding: 4px 6px; background: #10b981; color: #fff; border: none; border-radius: 4px; font-size: 10.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;" title="Promote to Stage-2 .GPT final section">
+                    <span>➡</span> Move to Stage-2
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- FINALS (Stage-2 .GPT Green UI) -->
+          <div class="cvs-sec final">
+            <div class="cvs-sechead" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span class="cvs-sectitle">Stage-2 .GPT</span>
+              <span class="cvs-secsub">Final slides — universal prompt</span>
+              <span class="cvs-secn">{{ finals.length }}</span>
+              <div style="margin-left: auto; display: flex; gap: 6px;">
+                <button class="act chat" style="padding: 4px 8px; font-size: 11px; font-weight: 700; border-radius: 4px; border: none; background: #3b82f6; color: #fff; cursor: pointer;" 
+                  [disabled]="runningStage2 || !finals.length" 
+                  (click)="runStage2Batch()" 
+                  title="Generate all Stage 2 slides one by one using ONLY the selected universal prompt template">
+                  {{ runningStage2 ? 'Processing…' : '▶ Run Stage 2' }}
+                </button>
+                <button class="act chat" style="padding: 4px 8px; font-size: 11px; font-weight: 700; border-radius: 4px; border: none; background: #10b981; color: #fff; cursor: pointer;" 
+                  [disabled]="!finals.length" 
+                  (click)="moveAllStage2ToCanvas()" 
+                  title="Move all Stage-2 final slides to the Canvas on the right">
+                  ➡ Move all to Canvas
+                </button>
+              </div>
+            </div>
+            <div class="cvs-secgrid">
+              <div class="cvs-secempty" *ngIf="!finals.length">none</div>
+              <div
+                class="cvs-mini final"
+                *ngFor="let s of finals; trackBy: trackByPageKey"
+                draggable="true"
+                (dragstart)="onSourceDragStart($event, s)"
+                (click)="openZoomForSource(s)"
+                title="Click to enlarge · drag to canvas"
+              >
+                <div class="cvs-minithumb">
+                  <img [src]="s.thumb" alt="" />
+                  <span class="cvs-pagenum">{{ getPageNumber(s.label) }}</span>
+                  <span class="cvs-badge">FINAL</span>
+                  <input type="checkbox" class="cvs-minisel" [checked]="isLeftSelected(s.pageKey)"
+                         (click)="$event.stopPropagation()" (change)="setLeftSelected(s.pageKey, $any($event.target).checked)"
+                         title="Include in API run" />
+                </div>
+                <div class="cvs-mp uni" title="Uses the universal prompt">🌐 universal</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NOT ASSIGNED -->
+          <div class="cvs-sec none">
+            <div class="cvs-sechead">
+              <span class="cvs-sectitle">Not assigned</span>
+              <span class="cvs-secsub">No comment, not final</span>
+              <span class="cvs-secn">{{ notAssigned.length }}</span>
+            </div>
+            <div class="cvs-secgrid">
+              <div class="cvs-secempty" *ngIf="!notAssigned.length">none</div>
+              <div
+                class="cvs-mini none"
+                *ngFor="let s of notAssigned; trackBy: trackByPageKey"
+                draggable="true"
+                (dragstart)="onSourceDragStart($event, s)"
+                (click)="openZoomForSource(s)"
+                title="Click to enlarge · drag to canvas"
+              >
+                <div class="cvs-minithumb">
+                  <img [src]="s.thumb" alt="" />
+                </div>
+
+                <div class="cvs-cmtadd" (click)="$event.stopPropagation()">
+                  <ng-container *ngIf="activeMiniComposerKey !== s.pageKey; else composerTplNone">
+                    <button class="cvs-cmtaddbtn" (click)="openMiniComposer(s, $event)">＋ Add comment</button>
+                  </ng-container>
+                  <ng-template #composerTplNone>
+                    <textarea class="cvs-cmt-editbox" [(ngModel)]="newMiniCommentText" placeholder="Write a comment…" (click)="$event.stopPropagation()"></textarea>
+                    <div class="cvs-cmt-editbtns">
+                      <button (click)="cancelMiniComposer($event)">Cancel</button>
+                      <button class="green" [disabled]="!newMiniCommentText.trim()" (click)="submitMiniComment(s, $event)">Add</button>
+                    </div>
+                  </ng-template>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- IMPORTED PDF PAGES -->
+          <div class="cvs-sec imp" *ngIf="imports.length">
+            <div class="cvs-sechead">
+              <span class="cvs-sectitle">New PDF</span>
+              <span class="cvs-secsub">Imported pages — drag to canvas</span>
+              <span class="cvs-secn">{{ imports.length }}</span>
+            </div>
+            <div class="cvs-secgrid">
+              <div
+                class="cvs-mini imp"
+                *ngFor="let imp of imports; trackBy: trackByUid"
+                draggable="true"
+                (dragstart)="onImportDragStart($event, imp)"
+                title="Drag to canvas"
+              >
+                <div class="cvs-minithumb">
+                  <img [src]="imp.thumb" alt="" />
+                  <span class="cvs-badge imp">NEW PDF</span>
+                </div>
+                <div class="cvs-impname">{{ imp.name }}</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="cvs-import">
+        <input #importInput type="file" accept="application/pdf,.pdf" multiple style="display:none" (change)="onImportFilesSelected($event)" />
+        <button class="gold" [disabled]="importing" (click)="triggerImport()">
+          {{ importing ? 'Importing…' : '＋ Import corrected PDF' }}
+        </button>
+        <span class="cvs-import-n">{{ imports.length }} imported page(s)</span>
+        <span class="cvs-sp"></span>
+        <span class="cvs-import-hint">Drag any slide → Canvas ▶</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════ RIGHT: canvas ═══════════════ -->
+    <div class="cvs-right">
+      <div class="cvs-canvashead">
+        <h4>Canvas → Stage 1 & Stage 2</h4>
+        <button [class.on]="canvasView === 'grid'" (click)="setCanvasView('grid')" title="Grid view">▦</button>
+        <button [class.on]="canvasView === 'list'" (click)="setCanvasView('list')" title="List view">▤</button>
+        <span class="cvs-tilesize">size <input type="range" min="80" max="320" [value]="tileSize" (input)="tileSize = $any($event.target).value"></span>
+        <button (click)="selectAllCanvas(true)" title="Select all canvas slides">☑ All</button>
+        <button (click)="selectAllCanvas(false)" title="Deselect all">☐ None</button>
+        <button [disabled]="true" [title]="aiDisabledTitle">⇄ Compare</button>
+        <button (click)="clearCanvas()">Clear</button>
+        <button (click)="toggleFinalise()">{{ locked ? '🔓 Unlock' : '🔒 Finalise' }}</button>
+        <button (click)="pickTargetFolder()" [title]="targetFolderName ? 'Selected Output Folder: ' + targetFolderName : 'Select folder for local file downloads'">
+          📁 {{ targetFolderName ? targetFolderName : 'Folder' }}
+        </button>
+        <button class="chat" [disabled]="runningApi || !canvasTiles.length" (click)="runApiX()" title="Run OpenAI Image Edit API on attached slides">
+          {{ runningApi ? 'Processing…' : '▶ RUN API X' }} <span class="n">{{ selectedCanvasCount }}</span>
+        </button>
+        <button class="stop-btn" *ngIf="runningApi" (click)="stopRunApi()" title="Stop API run for remaining slides">
+          ⏹ Stop
+        </button>
+        <button class="gold" [disabled]="exporting || !canvasTiles.length" (click)="exportCanvasPdf()">
+          {{ exporting ? 'Exporting…' : '⬇ Export PDF' }}
+        </button>
+        <button class="fetch-btn" [disabled]="fetchingAiSlides" (click)="fetchAiSlides()" title="Fetch stored AI slides from server database">
+          {{ fetchingAiSlides ? 'Fetching…' : '📥 Fetch AI Slides' }}
+        </button>
+      </div>
+
+      <div
+        class="cvs-canvas"
+        [class.drop-hover]="dragHover"
+        [class.locked]="locked"
+        (dragover)="onCanvasDragOver($event)"
+        (dragleave)="onCanvasDragLeave()"
+        (drop)="onCanvasDrop($event)"
+      >
+        <div class="cvs-candrop" *ngIf="!canvasTiles.length">
+          Drag any slide here — finals are ready; commented slides you've corrected can join too.
+          Reorder, then <b>Finalise</b> to lock.
+        </div>
+
+        <div [class]="canvasView === 'list' ? 'cvs-canlist' : 'cvs-cangrid'" [style.--cvs-tile]="tileSize + 'px'" *ngIf="canvasTiles.length">
+          <div
+            class="cvs-cantile"
+            *ngFor="let tile of canvasTiles; let i = index; trackBy: trackByUid"
+            [draggable]="!locked"
+            [class.dragging]="false"
+            [class.ins-l]="insertSide[tile.uid] === 'before'"
+            [class.ins-r]="insertSide[tile.uid] === 'after'"
+            (dragstart)="onTileDragStart($event, tile)"
+            (dragover)="onTileDragOver($event, tile, i)"
+            (dragleave)="onTileDragLeave(tile)"
+            (drop)="onTileDrop($event, tile, i)"
+          >
+            <img [src]="tile.thumb" [style.transform]="'rotate(' + tile.rot + 'deg)'" />
+            <span class="ord">{{ i + 1 }}</span>
+            <span class="cvs-org" *ngIf="tile.src === 'import'">NEW PDF</span>
+
+            <input type="checkbox" class="cvs-cansel" [checked]="isCanvasSelected(tile.uid)"
+                   (click)="$event.stopPropagation()" (change)="setCanvasSelected(tile.uid, $any($event.target).checked)"
+                   title="Include in API 1 run" />
+
+            <ng-container *ngIf="!locked">
+              <button class="rot" (click)="$event.stopPropagation(); rotateTile(tile)" title="Rotate 90°">⟳</button>
+              <button class="cedit" (click)="$event.stopPropagation(); openEditorForTile(tile)" title="Edit / annotate / add text">✎</button>
+              <button class="rm" (click)="$event.stopPropagation(); removeTile(tile.uid)">✕</button>
+            </ng-container>
+            <button class="zoom" (click)="$event.stopPropagation(); openZoomForTile(tile)" title="Full Screen Preview / Enlarge">⛶ Preview</button>
+          </div>
+        </div>
+      </div>
+      <div class="cvs-canstatus">{{ canvasStatusText }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ ZOOM MODAL ═══════════════ -->
+<div class="cvs-zoom-overlay" *ngIf="zoomOpen" (click)="closeZoom()">
+  <div class="cvs-zoom-wrap" (click)="$event.stopPropagation()">
+    <div class="cvs-zoom-pane"><img [src]="zoomImageUrl" alt="" /></div>
+    <div class="cvs-zoom-side" *ngIf="zoomPageKey || zoomImportUid">
+      <div class="cvs-zoom-head">💬 Comments — {{ zoomTitle }}</div>
+      <div class="cvs-zoom-local-hint" *ngIf="zoomImportUid">Saved locally only — not sent to the server.</div>
+      <div class="cvs-zoom-list">
+        <div class="cvs-zoom-empty" *ngIf="!zoomComments.length">No comments yet.</div>
+        <div class="cvs-zoom-comment" [class]="'clr-' + (i % 6)" *ngFor="let c of zoomComments; let i = index">
+          <ng-container *ngIf="editingCommentId !== c.id; else editZoomTpl">
+            <div class="cvs-zoom-comment-meta">
+              <span class="cvs-zoom-comment-author">{{ c.author || 'Unknown' }}</span>
+              <span class="cvs-zoom-comment-status" *ngIf="c.resolved">Resolved</span>
+            </div>
+            <div class="cvs-zoom-comment-text">{{ c.text }}</div>
+            <button class="cvs-zoom-comment-editbtn" (click)="startEditComment(c, $event)">✎ Edit</button>
+          </ng-container>
+          <ng-template #editZoomTpl>
+            <textarea class="cvs-cmt-editbox" [(ngModel)]="editingCommentText"></textarea>
+            <div class="cvs-cmt-editbtns">
+              <button (click)="cancelEditComment($event)">Cancel</button>
+              <button class="green" [disabled]="!editingCommentText.trim()" (click)="saveEditComment($event)">Save</button>
+            </div>
+          </ng-template>
+        </div>
+      </div>
+      <div class="cvs-zoom-add">
+        <textarea class="cvs-cmt-editbox" [(ngModel)]="newZoomCommentText" placeholder="Write a comment…"></textarea>
+        <button class="cvs-zoom-addbtn" [disabled]="!newZoomCommentText.trim()" (click)="submitZoomComment()">＋ Add comment</button>
+      </div>
+    </div>
+  </div>
+  <div class="cvs-zoom-bar">
+    <button (click)="closeZoom()">✕ Close</button>
+    <span class="cvs-zoom-hint">or click anywhere outside</span>
+  </div>
+</div>
+
+<!-- ═══════════════ IMAGE EDITOR MODAL ═══════════════ -->
+<div class="cvs-editor-overlay" *ngIf="editorOpen">
+  <div class="cvs-editor-panel">
+    <div class="cvs-editor-head">
+      <h3>Edit slide</h3>
+      <span class="cvs-sp"></span>
+      <button (click)="closeEditor()">Cancel</button>
+    </div>
+    <div class="cvs-editor-tools">
+      <button (click)="editorRotate90(-90)">↺ 90°</button>
+      <button (click)="editorRotate90(90)">↻ 90°</button>
+      <button (click)="editorFlip('h')">⇋ Flip H</button>
+      <button (click)="editorFlip('v')">⇅ Flip V</button>
+      <button [class.on]="editorInvert" (click)="editorToggleInvert()">◐ Invert</button>
+      <span class="seg">Angle <input type="range" min="-45" max="45" [value]="editorAngle" (input)="onEditorRangeInput('angle', $any($event.target).value)"><span>{{ editorAngle }}°</span></span>
+      <span class="seg">Bright <input type="range" min="50" max="150" [value]="editorBrightness" (input)="onEditorRangeInput('brightness', $any($event.target).value)"></span>
+      <span class="seg">Contrast <input type="range" min="50" max="150" [value]="editorContrast" (input)="onEditorRangeInput('contrast', $any($event.target).value)"></span>
+      <button [class.on]="editorDrawMode" (click)="editorToggleDraw()">✎ Draw</button>
+      <input type="color" [(ngModel)]="editorPenColor" title="Pen colour" />
+      <span class="seg">Pen <input type="range" min="1" max="20" [(ngModel)]="editorPenWidth"></span>
+      <button [class.on]="editorCropMode" (click)="editorToggleCrop()">⛶ Crop</button>
+      <button [class.on]="editorTextPlaceMode" (click)="editorAddText()" title="Click the slide to place text">🅣 Text</button>
+      <button [class.on]="editorShapePlaceMode === 'rect'" (click)="editorAddShape('rect')" title="Drag on the slide to draw a rectangle">▭</button>
+      <button [class.on]="editorShapePlaceMode === 'ellipse'" (click)="editorAddShape('ellipse')" title="Drag on the slide to draw an ellipse">◯</button>
+      <button [class.on]="editorShapePlaceMode === 'arrow'" (click)="editorAddShape('arrow')" title="Drag on the slide to draw an arrow">↗</button>
+      <button (click)="editorReset()">⟲ Reset</button>
+    </div>
+    <div class="cvs-editor-canvaswrap"
+      [class.mode-shape]="editorShapePlaceMode"
+      [class.mode-text]="editorTextPlaceMode"
+      [class.mode-draw]="editorDrawMode"
+      [class.mode-crop]="editorCropMode">
+      <canvas #editorCanvas
+        (mousedown)="onEditorCanvasDown($event)" (mousemove)="onEditorCanvasMove($event)" (mouseup)="onEditorCanvasUp()" (mouseleave)="onEditorCanvasUp()"
+        (touchstart)="onEditorCanvasDown($event)" (touchmove)="onEditorCanvasMove($event)" (touchend)="onEditorCanvasUp()"
+      ></canvas>
+      <div class="cvs-editor-textentry" *ngIf="editorTextEntry" [style.left.px]="editorTextEntry.screenX" [style.top.px]="editorTextEntry.screenY">
+        <input type="text" [(ngModel)]="editorTextEntry.value" placeholder="Type text…" (keydown.enter)="confirmTextEntry()" (keydown.escape)="cancelTextEntry()" (click)="$event.stopPropagation()" autofocus />
+        <div class="cvs-editor-textentry-btns">
+          <button (click)="cancelTextEntry()">✕</button>
+          <button class="green" (click)="confirmTextEntry()">✓</button>
+        </div>
+      </div>
+    </div>
+    <div class="cvs-editor-foot">
+      <span class="cvs-editor-hint">{{ editorHint }}</span>
+      <span class="cvs-sp"></span>
+      <button (click)="downloadEditorPng()">⬇ Download PNG</button>
+      <button class="green" (click)="saveEditor()">✓ Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PROMPT VAULT EDIT MODAL ═══════════════ -->
+<div class="cvs-zoom-overlay" *ngIf="showPromptModal" (click)="togglePromptModal()">
+  <div class="cvs-zoom-wrap" 
+    style="width: 90%; max-width: 680px; padding: 24px; background: #131722; border-radius: 14px; border: 1px solid #2a3142; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column; gap: 16px;" 
+    (click)="$event.stopPropagation()">
+    
+    <!-- Modal Header -->
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232938; padding-bottom: 14px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 20px; background: rgba(124, 58, 237, 0.2); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #a78bfa; border: 1px solid rgba(124, 58, 237, 0.4);">⚡</span>
+        <div>
+          <h3 style="margin: 0; font-size: 16px; color: #ffffff; font-weight: 700; letter-spacing: -0.01em;">Universal Prompt Template</h3>
+          <span style="font-size: 11px; color: #8b90a7; font-weight: 500;">Exclusively applied to <b>Stage-2 .GPT</b> final slides</span>
+        </div>
+      </div>
+      <button (click)="togglePromptModal()" 
+        style="background: #1f2433; border: 1px solid #2a3142; color: #8b90a7; width: 30px; height: 30px; border-radius: 6px; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
+        onmouseover="this.style.color='#fff'; this.style.borderColor='#7c3aed'"
+        onmouseout="this.style.color='#8b90a7'; this.style.borderColor='#2a3142'">✕</button>
+    </div>
+
+    <!-- Description Hint -->
+    <div style="background: rgba(124, 58, 237, 0.08); border-left: 3px solid #7c3aed; padding: 10px 14px; border-radius: 4px; font-size: 12px; color: #c4b5fd; line-height: 1.5;">
+      💡 Select a template from the <b>Insert Prompt</b> dropdown or edit custom instructions directly below. <i>Stage 1 · Claude (commented slides) use their own slide comments and will ignore this universal prompt.</i>
+    </div>
+
+    <!-- Textarea -->
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <label style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #8b90a7; letter-spacing: 0.03em;">Prompt Instructions Text</label>
+      <textarea [(ngModel)]="selectedVaultPromptBody"
+        placeholder="Selected prompt template text will appear here. You can also edit or write custom prompt instructions..."
+        style="width: 100%; height: 200px; background: #0b0e14; border: 1px solid #2a3142; border-radius: 8px; padding: 14px; color: #f1f5f9; font-size: 13px; line-height: 1.6; resize: vertical; font-family: inherit; outline: none; box-sizing: border-box; transition: border-color 0.2s;"
+        onfocus="this.style.borderColor='#7c3aed'"
+        onblur="this.style.borderColor='#2a3142'"></textarea>
+    </div>
+
+    <!-- Horizontal Footer Buttons -->
+    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #232938; padding-top: 14px;">
+      <button (click)="selectedVaultPromptBody = ''; selectedVaultPromptId = ''; toast.show('Prompt cleared', 'info')" 
+        style="padding: 9px 18px; background: rgba(220, 53, 69, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s;"
+        onmouseover="this.style.background='rgba(220, 53, 69, 0.3)'"
+        onmouseout="this.style.background='rgba(220, 53, 69, 0.15)'">
+        <span>🗑</span> Clear Prompt
+      </button>
+
+      <div style="display: flex; gap: 10px;">
+        <button (click)="togglePromptModal()" 
+          style="padding: 9px 18px; background: #1f2433; color: #cbd5e1; border: 1px solid #2a3142; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;">
+          Cancel
+        </button>
+        <button (click)="togglePromptModal()" 
+          style="padding: 9px 22px; background: #7c3aed; color: #ffffff; border: none; border-radius: 6px; font-size: 12.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4); display: flex; align-items: center; gap: 6px;"
+          onmouseover="this.style.background='#6d28d9'"
+          onmouseout="this.style.background='#7c3aed'">
+          <span>✓</span> Save & Apply
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════ AI GENERATED IMAGE PREVIEW MODAL ═══════════════ -->
+<div class="cvs-zoom-overlay" *ngIf="previewModalImg" (click)="closeGeneratedPreview()">
+  <div class="cvs-zoom-wrap" style="max-width: 85vw; max-height: 85vh; padding: 20px; background: #131722; border-radius: 14px; border: 1px solid #2a3142; display: flex; flex-direction: column; align-items: center; gap: 14px; box-shadow: 0 20px 50px rgba(0,0,0,0.8);" (click)="$event.stopPropagation()">
+    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232938; padding-bottom: 10px;">
+      <h3 style="margin: 0; font-size: 16px; color: #fff; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+        <span>👁</span> AI Generated Slide Preview
+      </h3>
+      <button (click)="closeGeneratedPreview()" 
+        style="background: #1f2433; border: 1px solid #2a3142; color: #8b90a7; width: 30px; height: 30px; border-radius: 6px; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
+    </div>
+    <div style="flex: 1; overflow: auto; display: flex; justify-content: center; align-items: center; width: 100%; padding: 10px;">
+      <img [src]="previewModalImg" alt="AI Generated Slide" style="max-width: 100%; max-height: 70vh; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); object-fit: contain;" />
+    </div>
+  </div>
+</div>

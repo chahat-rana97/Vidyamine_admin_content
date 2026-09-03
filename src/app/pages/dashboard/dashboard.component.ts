@@ -673,8 +673,21 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return !this.isAdminOrAbove;
   }
 
+  /** Editors can view the dashboard numbers but can't click through to any of the linked screens. */
+  get isEditor(): boolean {
+    return this.auth.user?.role === 'editor';
+  }
+
+  /** true when this route should be blocked from opening for the current role —
+   *  Admin Users for anyone below superadmin, or ANY stat-card route for editor. */
+  isRouteRestricted(route: string): boolean {
+    if (route === '/admin-users' && this.isAdminUsersRestricted) return true;
+    if (this.isEditor) return true;
+    return false;
+  }
+
   onRestrictedLinkClick(label: string, event: Event) {
-    if (this.isAdminUsersRestricted) {
+    if (this.isAdminUsersRestricted || this.isEditor) {
       event.preventDefault();
       event.stopPropagation();
       this.accessDeniedLabel = label;

@@ -1,13 +1,16 @@
-import { Component, OnInit, OnDestroy, AfterViewInit, ElementRef, ViewChild, HostListener, Directive, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ElementRef, ViewChild, HostListener, HostBinding, Directive, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import * as pdfjsLib from 'pdfjs-dist';
 import { jsPDF } from 'jspdf';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import JSZip from 'jszip';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { AuthService } from '../../core/services/auth.service';
 import { SpeechToTextService } from './speech-to-text.service';
+import { CanvasComponent, CanvasSourceSlide } from '../canvas/canvas.component';
 
 // pdfjs needs its worker script location set once, at module load. The file
 // is copied into /public/assets/pdf.worker.min.mjs at build time and must be
@@ -88,6 +91,32 @@ export class StickyResizeWatchDirective implements AfterViewInit, OnDestroy {
   }
 }
 
+/**
+ * Auto-grows a <textarea> to fit its content as soon as it appears
+ * (e.g. right when a comment's edit box opens), so the full comment is
+ * visible immediately instead of showing a cramped 2-row box the user
+ * has to manually resize or scroll inside. Height is also refreshed on
+ * every keystroke via the host's own (input) handler in the template.
+ */
+@Directive({ selector: '[cvAutoGrow]', standalone: true })
+export class AutoGrowDirective implements AfterViewInit {
+  constructor(private el: ElementRef<HTMLTextAreaElement>) {}
+
+  ngAfterViewInit(): void {
+    // Deferred one tick so it runs after ngModel has populated the
+    // textarea's initial value (edit mode opens with existing text).
+    setTimeout(() => {
+      const node = this.el.nativeElement;
+      node.style.height = 'auto';
+      // Leave ~3-4 extra blank lines below the existing content so the box
+      // opens with obvious room to keep writing, not sized tightly to fit
+      // just the current text.
+      const lineHeight = parseFloat(getComputedStyle(node).lineHeight) || 16;
+      node.style.height = (node.scrollHeight + 3.5 * lineHeight) + 'px';
+    });
+  }
+}
+
 /** The four kinds of "document" that can appear in either pane. */
 export type CompareDocType = 'screenshots' | 'claude_ppt' | 'gpt_ppt' | 'claude_pdf';
 
@@ -153,6 +182,17 @@ interface NaturalSize {
   width: number;
   height: number;
 }
+
+/** Which visual variant of the page images to export. Mirrors the "PDF of selected slides" options.
+ *  'commented_zip' is special: unlike the other three, it doesn't produce a single PDF — it always
+ *  forces the 'commented' page filter and bundles a clean PDF + a clean comments .docx into one .zip. */
+type ExportKind = 'clean' | 'pins' | 'pins_callout' | 'appended' | 'commented_zip';
+
+/** Which subset of pages/slides to include, based on comment/final status. 'all' = no filtering. */
+type ExportPageFilter = 'all' | 'commented' | 'not_commented' | 'final' | 'not_final';
+
+/** Format for comment-only exports (no page images). */
+type CommentExportFormat = 'md' | 'text' | 'docx_status' | 'docx_clean';
 
 interface CommentPin {
   id: number;
@@ -221,7 +261,7 @@ interface PaneState {
 @Component({
   selector: 'app-compare-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, StickyResizeWatchDirective],
+  imports: [CommonModule, FormsModule, StickyResizeWatchDirective, AutoGrowDirective, CanvasComponent],
   templateUrl: './compare-view.component.html',
   styleUrls: ['./compare-view.component.css']
 })
@@ -247,12 +287,187 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   topic: any = null;
   loadingTopic = false;
 
+  // ── Assign-to-user (mirrors topics.component.ts so this can be done
+  //    from the compare-view toolbar too, not just the topic tile) ──
+  assignableUsers: any[] = [];
+  assigningTopic = false;
+
   pickerOpen = true;
   pickerLeft: CompareDocType | null = null;
   pickerRight: CompareDocType | null = null;
   /** Version sub-selection, shown once a doc type (other than screenshots) is chosen. null = Original. */
   pickerLeftVersion: CompareVersion | null = null;
   pickerRightVersion: CompareVersion | null = null;
+
+  // ============================================================
+  // PREV / NEXT TOPIC NAVIGATION
+  // ============================================================
+  /** Sibling topics in the same chapter, ordered the same way the Topics
+   *  screen shows them (by `sequence`). Loaded once (lazily) so Next/Prev
+   *  don't need to hit the topic-list endpoint on every click. */
+  private topicSiblings: any[] = [];
+  private topicSiblingsLoaded = false;
+  private topicSiblingsLoading = false;
+  /** True while we're auto-skipping over topics that don't have the
+   *  currently-selected doc combo, so the UI can show a small spinner
+   *  instead of looking stuck. */
+  navigatingTopic = false;
+
+  get topicNavIndex(): number {
+    if (!this.topic) return -1;
+    return this.topicSiblings.findIndex(t => t.id === this.topic.id);
+  }
+
+  get hasPrevTopic(): boolean {
+    const i = this.topicNavIndex;
+    return i > 0;
+  }
+
+  get hasNextTopic(): boolean {
+    const i = this.topicNavIndex;
+    return i >= 0 && i < this.topicSiblings.length - 1;
+  }
+
+  /** Fetches the sibling topic list once, sorted the same way the Topics
+   *  screen sorts it. Safe to call repeatedly — only the first call hits the API. */
+  private ensureTopicSiblingsLoaded(onReady: () => void) {
+    if (this.topicSiblingsLoaded) { onReady(); return; }
+    if (this.topicSiblingsLoading) {
+      // Already in flight (e.g. double-click) — just wait for it.
+      const check = () => {
+        if (this.topicSiblingsLoaded) onReady();
+        else setTimeout(check, 50);
+      };
+      check();
+      return;
+    }
+    const chapterId = this.topic?.chapter_id;
+    if (!chapterId) { onReady(); return; }
+    this.topicSiblingsLoading = true;
+    this.api.get<any>(`/topics?chapter_id=${chapterId}`).subscribe({
+      next: (r: any) => {
+        const list = Array.isArray(r?.data) ? r.data : [];
+        list.sort((a: any, b: any) => Number(a.sequence) - Number(b.sequence));
+        this.topicSiblings = list;
+        this.topicSiblingsLoaded = true;
+        this.topicSiblingsLoading = false;
+        onReady();
+      },
+      error: () => {
+        this.topicSiblingsLoading = false;
+        onReady();
+      }
+    });
+  }
+
+  /** Whether `t` (a row from the sibling list) has the given doc type
+   *  available at all — same rules as `availableDocTypes`, just against an
+   *  arbitrary topic object instead of `this.topic`. */
+  private topicHasDocType(t: any, docType: CompareDocType | null): boolean {
+    if (!docType || !t) return false;
+    if (docType === 'screenshots') {
+      const shots = this.parseJsonArray(t.screenshots);
+      return shots.length > 0;
+    }
+    const base: Record<string, string> = {
+      claude_ppt: 'slide_claude_ppt', gpt_ppt: 'slide_gpt_ppt', claude_pdf: 'slide_claude_pdf'
+    };
+    const field = base[docType];
+    if (!field) return false;
+    if (t[field]) return true;
+    return COMPARE_VERSIONS.some(v => !!t[`${field}_${v}`]);
+  }
+
+  goToPrevTopic() {
+    this.navigateTopic(-1);
+  }
+
+  goToNextTopic() {
+    this.navigateTopic(1);
+  }
+
+  /**
+   * Moves to the previous/next topic (direction -1 / +1), keeping the same
+   * left/right doc-type + version selection the user currently has open.
+   * If the target topic is missing one of those documents, shows a toast
+   * naming the missing doc and keeps skipping in the same direction until
+   * it finds a topic that has both, or runs out of topics.
+   */
+  private navigateTopic(direction: 1 | -1) {
+    if (this.navigatingTopic) return;
+    this.ensureTopicSiblingsLoaded(() => {
+      const wantLeft = this.left.docType;
+      const wantRight = this.right.docType;
+      const wantLeftVersion = this.left.version;
+      const wantRightVersion = this.right.version;
+
+      let i = this.topicNavIndex;
+      if (i < 0) return;
+
+      this.navigatingTopic = true;
+
+      const tryNext = () => {
+        i += direction;
+        if (i < 0 || i >= this.topicSiblings.length) {
+          this.navigatingTopic = false;
+          this.toast.error(direction > 0 ? 'No more topics after this one' : 'No more topics before this one');
+          return;
+        }
+        const candidate = this.topicSiblings[i];
+
+        // Only auto-skip when this screen already has a concrete doc combo
+        // picked (i.e. we're not sitting on the doc-type picker). If either
+        // side isn't chosen yet, just move to the topic and let the picker
+        // show as usual.
+        if (wantLeft && !this.topicHasDocType(candidate, wantLeft)) {
+          this.toast.error(`${this.docLabelFor(wantLeft)} is not available in "${candidate.name}" — skipping`);
+          tryNext();
+          return;
+        }
+        if (wantRight && !this.topicHasDocType(candidate, wantRight)) {
+          this.toast.error(`${this.docLabelFor(wantRight)} is not available in "${candidate.name}" — skipping`);
+          tryNext();
+          return;
+        }
+
+        this.openTopicById(candidate.id, wantLeft, wantLeftVersion, wantRight, wantRightVersion);
+      };
+
+      tryNext();
+    });
+  }
+
+  /** Loads a different topic into this same screen (no route change), then
+   *  re-applies the given left/right doc selection once the topic data is in. */
+  private openTopicById(
+    topicId: number,
+    left: CompareDocType | null,
+    leftVersion: CompareVersion | null,
+    right: CompareDocType | null,
+    rightVersion: CompareVersion | null
+  ) {
+    this.topicId = topicId;
+    // Keep the URL in sync so refresh/back-forward and deep-linking still work.
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { topic_id: topicId },
+      queryParamsHandling: 'merge',
+      replaceUrl: true
+    });
+
+    this.loadTopic(() => {
+      this.navigatingTopic = false;
+      if (left && right) {
+        this.pickerLeft = left;
+        this.pickerLeftVersion = leftVersion;
+        this.pickerRight = right;
+        this.pickerRightVersion = rightVersion;
+        this.confirmPicker();
+      } else {
+        this.pickerOpen = true;
+      }
+    });
+  }
 
   left: PaneState = this.emptyPane();
   right: PaneState = this.emptyPane();
@@ -268,11 +483,12 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   newCommentText = '';
   activePaneSide: 'left' | 'right' = 'left';
 
-  /** How comments render on top of every page/slide/screenshot (both panes at once). Purely a view setting — not persisted server-side. */
-  commentDisplayMode: CommentDisplayMode = 'below';
+  /** How comments render on top of every page/slide/screenshot (both panes at once). Persisted locally so the choice survives navigating away and back. */
+  commentDisplayMode: CommentDisplayMode = this.loadCvSetting('commentDisplayMode', 'highlight');
 
   setCommentDisplayMode(mode: CommentDisplayMode) {
     this.commentDisplayMode = mode;
+    this.saveCvSetting('commentDisplayMode', mode);
   }
 
   // ============================================================
@@ -296,18 +512,18 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     { name: 'Brick',   accent: '#c2410c', card: '#c2410c', border: '#c2410c', text: '#ffffff' },
   ];
 
-  readonly DEFAULT_CD_THEME = this.CD_COLOR_PRESETS[0];
+  readonly DEFAULT_CD_THEME = this.CD_COLOR_PRESETS.find(p => p.name === 'Brick')!;
   /** 0 = solid … 7 = almost invisible card background. */
   readonly CD_ALPHA_STEPS = [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.15, 0.07];
   readonly CD_ALPHA_LABELS = ['Solid', 'See-through 1', 'See-through 2', 'See-through 3', 'See-through 4', 'Very high', 'Extreme', 'Max (ghost)'];
 
-  /** Name of the currently-applied preset, or null when a custom color is in use. */
-  cdThemeName: string | null = this.DEFAULT_CD_THEME.name;
-  cdPinColor = this.DEFAULT_CD_THEME.accent;
-  cdCardColor = this.DEFAULT_CD_THEME.card;
-  cdBorderColor = this.DEFAULT_CD_THEME.border;
-  cdTextColor = this.DEFAULT_CD_THEME.text;
-  cdAlphaLevel = 4;
+  /** Name of the currently-applied preset, or null when a custom color is in use. Persisted locally, same as the other on-slide display settings below. */
+  cdThemeName: string | null = this.loadCvSetting('cdThemeName', this.DEFAULT_CD_THEME.name);
+  cdPinColor = this.loadCvSetting('cdPinColor', this.DEFAULT_CD_THEME.accent);
+  cdCardColor = this.loadCvSetting('cdCardColor', this.DEFAULT_CD_THEME.card);
+  cdBorderColor = this.loadCvSetting('cdBorderColor', this.DEFAULT_CD_THEME.border);
+  cdTextColor = this.loadCvSetting('cdTextColor', this.DEFAULT_CD_THEME.text);
+  cdAlphaLevel = this.loadCvSetting('cdAlphaLevel', 4);
   /** Whether the colour theme popover is open in the toolbar. */
   cdColorPickerOpen = false;
 
@@ -322,6 +538,111 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   setCdAlphaLevel(level: number | string) {
     this.cdAlphaLevel = Math.max(0, Math.min(7, Number(level)));
+    this.saveCvSetting('cdAlphaLevel', this.cdAlphaLevel);
+  }
+
+  // ============================================================
+  // SLIDE FILTER ("🗂 Slides ▾" dropdown, next to the see-through select)
+  // Purely a view/navigation aid — doesn't hide slides (each pane only
+  // ever renders one active item at a time), it jumps the active pane
+  // to the next item matching the chosen condition. Not persisted.
+  // ============================================================
+
+  readonly SLIDE_FILTERS = [
+    'all', 'commented', 'not_commented', 'has_open', 'all_resolved',
+    'open_not_by_me', 'marked_final', 'not_final'
+  ] as const;
+
+  readonly SLIDE_FILTER_LABEL: Record<typeof this.SLIDE_FILTERS[number], string> = {
+    all: 'All slides',
+    commented: 'Commented only',
+    not_commented: 'Not commented',
+    has_open: 'Has open comments',
+    all_resolved: 'All comments resolved',
+    open_not_by_me: 'Open / not resolved by me',
+    marked_final: 'Marked final ✓',
+    not_final: 'Not yet final'
+  };
+
+  slideFilter: typeof this.SLIDE_FILTERS[number] = this.loadCvSetting('slideFilter', 'all');
+  slideFilterMenuOpen = false;
+
+  // ── Canvas screen (triage + compose slides from the non-screenshot pane) ──
+  canvasOpen = false;
+  canvasSlides: CanvasSourceSlide[] = [];
+  canvasDocLabel = '';
+  canvasLoading = false;
+
+  /** Split into the two visual groups shown in the dropdown (comment-based, then final-status), typed so the template's *ngFor keeps the literal union type instead of widening to string[]. */
+  readonly SLIDE_FILTERS_COMMENT_GROUP: typeof this.SLIDE_FILTERS[number][] =
+    ['all', 'commented', 'not_commented', 'has_open', 'all_resolved', 'open_not_by_me'];
+  readonly SLIDE_FILTERS_FINAL_GROUP: typeof this.SLIDE_FILTERS[number][] =
+    ['marked_final', 'not_final'];
+
+  toggleSlideFilterMenu(evt?: Event) {
+    evt?.stopPropagation();
+    this.slideFilterMenuOpen = !this.slideFilterMenuOpen;
+  }
+
+  closeSlideFilterMenu() {
+    this.slideFilterMenuOpen = false;
+  }
+
+  /** True if the item at (side, index) matches the currently chosen slide filter. */
+  itemMatchesSlideFilter(side: 'left' | 'right', index: number): boolean {
+    if (this.slideFilter === 'all') return true;
+    // Screenshots pane is exempt — always shows every screenshot regardless
+    // of the active slide filter (only PDF/PPTX panes get filtered).
+    const pane = this.paneOf(side);
+    if (pane.docType === 'screenshots') return true;
+    const list = this.commentsForIndex(side, index);
+    switch (this.slideFilter) {
+      case 'commented':
+        return list.length > 0;
+      case 'not_commented':
+        return list.length === 0;
+      case 'has_open':
+        return list.some(c => !c.resolved);
+      case 'all_resolved':
+        return list.length > 0 && list.every(c => !!c.resolved);
+      case 'open_not_by_me': {
+        const me = this.auth.user?.name;
+        return list.some(c => !c.resolved && c.author !== me);
+      }
+      case 'marked_final':
+        return this.isFinal(side, index);
+      case 'not_final':
+        return !this.isFinal(side, index);
+      default:
+        return true;
+    }
+  }
+
+  /** Applies a filter choice: closes the menu. Visibility of each slide in
+   *  both panes' vertical lists is driven live by itemMatchesSlideFilter()
+   *  via [hidden] bindings — this just updates the selected filter. */
+  applySlideFilter(filter: typeof this.SLIDE_FILTERS[number]) {
+    this.slideFilter = filter;
+    this.slideFilterMenuOpen = false;
+    this.saveCvSetting('slideFilter', filter);
+    if (filter === 'all') return;
+
+    const leftCount = this.slideFilterMatchCount('left');
+    const rightCount = this.slideFilterMatchCount('right');
+    if (leftCount === 0 && rightCount === 0) {
+      this.toast.error(`No slides match "${this.SLIDE_FILTER_LABEL[filter]}"`);
+    }
+  }
+
+  /** How many items in the given pane currently match the active slide filter — shown as a badge on the filter button. */
+  slideFilterMatchCount(side: 'left' | 'right'): number {
+    if (this.slideFilter === 'all') return 0;
+    const pane = this.paneOf(side);
+    let n = 0;
+    for (let i = 0; i < pane.items.length; i++) {
+      if (this.itemMatchesSlideFilter(side, i)) n++;
+    }
+    return n;
   }
 
   /** Applies a curated preset — one click sets pin, card, border and readable text together. */
@@ -331,6 +652,7 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     this.cdCardColor = p.card;
     this.cdBorderColor = p.border;
     this.cdTextColor = p.text;
+    this.saveCdColorSettings();
   }
 
   /** Applies a custom hex color to pin/card/border together, auto-picking a readable text color (black or white) based on contrast. */
@@ -340,11 +662,54 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     this.cdCardColor = hex;
     this.cdBorderColor = hex;
     this.cdTextColor = this.readableTextColor(hex);
+    this.saveCdColorSettings();
   }
 
   resetCdColors() {
     this.applyCdColorPreset(this.DEFAULT_CD_THEME);
     this.cdAlphaLevel = 4;
+    this.saveCvSetting('cdAlphaLevel', this.cdAlphaLevel);
+  }
+
+  /** Persists all four color-derived fields together after any preset/custom-color change. */
+  private saveCdColorSettings() {
+    this.saveCvSetting('cdThemeName', this.cdThemeName);
+    this.saveCvSetting('cdPinColor', this.cdPinColor);
+    this.saveCvSetting('cdCardColor', this.cdCardColor);
+    this.saveCvSetting('cdBorderColor', this.cdBorderColor);
+    this.saveCvSetting('cdTextColor', this.cdTextColor);
+  }
+
+  // ============================================================
+  // LOCAL PERSISTENCE for the four toolbar view-settings above
+  // (highlight-band mode, colors, see-through level, slide filter).
+  // Purely client-side display preferences — stored under one shared
+  // localStorage key so they survive navigating away and coming back,
+  // without needing a backend round-trip.
+  // ============================================================
+  private static readonly CV_SETTINGS_KEY = 'cv_toolbar_settings_v1';
+
+  private loadCvSetting<T>(key: string, fallback: T): T {
+    try {
+      const raw = localStorage.getItem(CompareViewComponent.CV_SETTINGS_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return key in parsed ? parsed[key] : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private saveCvSetting(key: string, value: any) {
+    try {
+      const raw = localStorage.getItem(CompareViewComponent.CV_SETTINGS_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed[key] = value;
+      localStorage.setItem(CompareViewComponent.CV_SETTINGS_KEY, JSON.stringify(parsed));
+    } catch {
+      // localStorage unavailable (e.g. private browsing quota) — settings
+      // simply won't persist this session, rest of the app still works.
+    }
   }
 
   /** Card/band background as an rgba string combining cdCardColor + the current see-through level. */
@@ -395,39 +760,92 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   closeCommentCard() {
-    if (this.speech.isListening) this.speech.stop();
+    if (this.dictationTarget === 'commentCard') this.stopDictation();
     this.commentCardFor = null;
     this.commentCardText = '';
   }
 
+  /**
+   * Which text field mic dictation is currently feeding, if any — 'commentCard'
+   * (the Add Comment popup), 'footerEdit' (the on-slide / side-panel comment
+   * edit box, both driven by editingText), 'pinEdit' (a sticky-note edit box,
+   * editingPinText), or null when nothing is recording. speech.isListening
+   * alone can't tell WHICH box is recording since the speech service is a
+   * single app-wide singleton — this is what lets each box show its own mic
+   * button as active/inactive correctly instead of all of them lighting up
+   * (or none of them) together.
+   */
+  dictationTarget: 'commentCard' | 'footerEdit' | 'pinEdit' | null = null;
+
   /** Base text captured before the current dictation session started, so
    *  interim (non-final) speech results can be previewed without duplicating
    *  already-committed text on each onresult tick. */
-  private commentCardTextBeforeDictation = '';
+  private dictationTextBefore = '';
 
-  /** Toggles mic dictation into the comment card's textarea (Chrome/Edge only). */
-  toggleCommentCardMic() {
-    if (this.speech.isListening) {
-      this.speech.stop();
+  isDictating(target: 'commentCard' | 'footerEdit' | 'pinEdit'): boolean {
+    return this.dictationTarget === target && this.speech.isListening;
+  }
+
+  /** Starts (or stops, if already recording into this exact target) mic
+   *  dictation for one of the three text fields. Starting one automatically
+   *  stops any other in-progress dictation first, since only one mic session
+   *  can run at a time (the speech service is a single global recognizer). */
+  toggleDictation(target: 'commentCard' | 'footerEdit' | 'pinEdit') {
+    if (this.dictationTarget === target && this.speech.isListening) {
+      this.stopDictation();
       return;
     }
-    this.commentCardTextBeforeDictation = this.commentCardText ? this.commentCardText + ' ' : '';
+    if (this.speech.isListening) this.speech.stop();
+
+    this.dictationTarget = target;
+    const current = this.dictationCurrentText(target);
+    this.dictationTextBefore = current ? current + ' ' : '';
+
     this.speech.start(
       (text, isFinal) => {
         if (isFinal) {
-          this.commentCardTextBeforeDictation += text + ' ';
-          this.commentCardText = this.commentCardTextBeforeDictation;
+          this.dictationTextBefore += text + ' ';
+          this.dictationSetText(target, this.dictationTextBefore);
         } else {
-          this.commentCardText = this.commentCardTextBeforeDictation + text;
+          this.dictationSetText(target, this.dictationTextBefore + text);
         }
+      },
+      () => {
+        // recognition ended on its own (silence timeout, tab lost focus, etc.)
+        if (this.dictationTarget === target) this.dictationTarget = null;
       }
     );
   }
 
+  stopDictation() {
+    this.speech.stop();
+    this.dictationTarget = null;
+  }
+
+  private dictationCurrentText(target: 'commentCard' | 'footerEdit' | 'pinEdit'): string {
+    if (target === 'commentCard') return this.commentCardText;
+    if (target === 'footerEdit') return this.editingText;
+    return this.editingPinText;
+  }
+
+  private dictationSetText(target: 'commentCard' | 'footerEdit' | 'pinEdit', text: string) {
+    if (target === 'commentCard') this.commentCardText = text;
+    else if (target === 'footerEdit') this.editingText = text;
+    else this.editingPinText = text;
+  }
+
+  /** @deprecated kept as a thin alias so nothing else needs to change if referenced elsewhere — prefer toggleDictation('commentCard'). */
+  toggleCommentCardMic() {
+    this.toggleDictation('commentCard');
+  }
+
+  /** Whether the popup "Add comment" card's save request is in flight. */
+  commentCardSaving = false;
+
   /** Posts the popup card's text as a new general comment on the item, then closes the card. */
   submitCommentCard() {
-    if (this.speech.isListening) this.speech.stop();
-    if (!this.commentCardFor) return;
+    if (this.dictationTarget === 'commentCard') this.stopDictation();
+    if (!this.commentCardFor || this.commentCardSaving) return;
     const { side, index } = this.commentCardFor;
     const text = this.commentCardText.trim();
     if (!text || !this.topicId) return;
@@ -441,8 +859,10 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
       text
     };
 
+    this.commentCardSaving = true;
     this.api.post<any>(`/topics/${this.topicId}/comparison-comments`, body).subscribe({
       next: (r: any) => {
+        this.commentCardSaving = false;
         if (r?.status && r?.data) {
           this.comments = [...this.comments, r.data];
           this.closeCommentCard();
@@ -450,7 +870,10 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
           this.toast.error(r?.message || 'Failed to add comment');
         }
       },
-      error: () => this.toast.error('Failed to add comment')
+      error: () => {
+        this.commentCardSaving = false;
+        this.toast.error('Failed to add comment');
+      }
     });
   }
 
@@ -502,6 +925,32 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   fullscreenSide: 'left' | 'right' | null = null;
 
   /**
+   * True while the WHOLE compare-view screen is expanded to cover the
+   * entire viewport — including the app's outer sidebar and header, which
+   * this component doesn't otherwise control. Implemented by turning
+   * `.cv-root` into a `position: fixed` full-viewport overlay (see the
+   * `.cv-appfullscreen` rule in the CSS) rather than by reaching into the
+   * app shell, so it works regardless of what layout this component gets
+   * mounted inside. Also adds a class to `<body>` so the shell's own
+   * scrollbar doesn't double up with this component's while active.
+   */
+  appFullscreen = true;
+
+  // Mirrors `appFullscreen` onto the host element itself (see the
+  // `:host(.cv-host-appfullscreen)` rule in the CSS) — needed because
+  // promoting only the inner .cv-root to position:fixed isn't enough if
+  // an ancestor between :host and the app shell's sidebar has its own
+  // stacking context; the sidebar can still paint on top in that case.
+  @HostBinding('class.cv-host-appfullscreen') get hostFullscreenClass() {
+    return this.appFullscreen;
+  }
+
+  toggleAppFullscreen(): void {
+    this.appFullscreen = !this.appFullscreen;
+    document.body.classList.toggle('cv-body-appfullscreen', this.appFullscreen);
+  }
+
+  /**
    * Independent show/hide toggles for the three columns of the compare view
    * (left pane, right pane, comments panel) — driven by the three header
    * buttons. Distinct from fullscreenSide: fullscreen dedicates the whole
@@ -537,7 +986,12 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     private router: Router,
     private cdr: ChangeDetectorRef,
     public speech: SpeechToTextService
-  ) {}
+  ) {
+    // Applied here (not just ngOnInit) so <body> already has the class
+    // before this component's first paint — avoids a flash of the
+    // previous screen showing through behind .cv-root on initial load.
+    document.body.classList.add('cv-body-appfullscreen');
+  }
 
   private emptyPane(): PaneState {
     return {
@@ -548,6 +1002,14 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnInit() {
+    // This screen is meant to always open edge-to-edge (no app sidebar/
+    // header) rather than requiring a manual click on "⛶ Full screen"
+    // every time. `appFullscreen` now defaults to true and the body class
+    // is already applied in the constructor (before first paint), so
+    // there's nothing left to toggle here — this just guards against the
+    // class ever getting out of sync with the flag.
+    document.body.classList.toggle('cv-body-appfullscreen', this.appFullscreen);
+
     const idParam = this.route.snapshot.queryParamMap.get('topic_id');
     this.topicId = idParam ? Number(idParam) : null;
 
@@ -574,12 +1036,16 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     } else {
       this.loadTopic();
     }
+
+    this.loadAssignableUsers();
   }
 
   ngOnDestroy() {
     window.removeEventListener('mousemove', this.onDragMove);
     window.removeEventListener('mouseup', this.onDragEnd);
     if (this.syncScrollSuppressTimer) clearTimeout(this.syncScrollSuppressTimer);
+    document.body.classList.remove('cv-body-appfullscreen');
+    if (this.speech.isListening) this.speech.stop();
   }
 
   ngAfterViewInit() {
@@ -587,15 +1053,39 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     // via (scroll)="onPaneScroll(side)" — nothing to wire up manually here.
   }
 
-  /** Closes the download menu and the on-slide colors popover when the user clicks anywhere else in the document. Both popover roots call $event.stopPropagation() so clicks inside them don't trigger this. */
+  /** Closes the download menu, the on-slide colors popover, and the slide filter menu when the user clicks anywhere else in the document. All popover roots call $event.stopPropagation() so clicks inside them don't trigger this. */
   @HostListener('document:click')
   onDocumentClick() {
     this.downloadMenuOpen = false;
+    this.downloadPdfSubmenuSide = null;
     this.cdColorPickerOpen = false;
+    this.slideFilterMenuOpen = false;
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey() {
+    if (this.appFullscreen) this.toggleAppFullscreen();
   }
 
   get canWrite() {
     return ['superadmin', 'admin', 'editor'].includes(this.auth.user?.role || '');
+  }
+
+  /** Editors can view/compare everything but not download exports,
+   *  open Canvas, or reassign the topic. */
+  get isEditor(): boolean {
+    return this.auth.user?.role === 'editor';
+  }
+
+  /** Swallows a click for editor-locked controls and shows a red "Access denied" toast. */
+  blockIfEditor(event: Event): boolean {
+    if (this.isEditor) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toast.error('Access denied');
+      return true;
+    }
+    return false;
   }
 
   goBack() {
@@ -622,6 +1112,59 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
         this.loadingTopic = false;
         this.toast.error('Failed to load topic');
       }
+    });
+  }
+
+  // ============================================================
+  // TOPIC ASSIGNMENT (same endpoints as topics.component.ts, so the
+  // topic can be assigned/unassigned from here too, not just the tile)
+  // ============================================================
+
+  loadAssignableUsers() {
+    this.api.get<any>('/admin/users-assignable').subscribe({
+      next: (r: any) => { this.assignableUsers = Array.isArray(r?.data) ? r.data : []; },
+      error: () => { /* silent — dropdown just stays empty */ }
+    });
+  }
+
+  onAssigneeChange(userId: any) {
+    if (!userId) {
+      this.unassignTopic();
+      return;
+    }
+    if (!this.topicId || !this.topic) return;
+    this.assigningTopic = true;
+    this.api.put<any>(`/topics/${this.topicId}/assign`, { assigned_to: userId }).subscribe({
+      next: (r: any) => {
+        this.assigningTopic = false;
+        if (r?.status) {
+          this.topic.assigned_to = userId;
+          const u = this.assignableUsers.find(x => String(x.id) === String(userId));
+          this.topic.assigned_to_name = u?.name || this.topic.assigned_to_name;
+          this.toast.success(`Assigned to ${this.topic.assigned_to_name || 'user'}`);
+        } else {
+          this.toast.error(r?.message || 'Failed to assign topic');
+        }
+      },
+      error: () => { this.assigningTopic = false; this.toast.error('Failed to assign topic'); }
+    });
+  }
+
+  unassignTopic() {
+    if (!this.topicId || !this.topic) return;
+    this.assigningTopic = true;
+    this.api.delete<any>(`/topics/${this.topicId}/assign`).subscribe({
+      next: (r: any) => {
+        this.assigningTopic = false;
+        if (r?.status) {
+          this.topic.assigned_to = null;
+          this.topic.assigned_to_name = null;
+          this.toast.success('Topic unassigned');
+        } else {
+          this.toast.error(r?.message || 'Failed to unassign topic');
+        }
+      },
+      error: () => { this.assigningTopic = false; this.toast.error('Failed to unassign topic'); }
     });
   }
 
@@ -748,8 +1291,25 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     this.right.docType = this.pickerRight;
     this.right.version = this.pickerRight === 'screenshots' ? null : this.pickerRightVersion;
     this.pptxViewer = {};
+    this.applyDefaultCommentsTab();
     this.loadPane('left');
     this.loadPane('right');
+  }
+
+  /**
+   * Default the Comments panel to whichever side ISN'T "Screenshots" when
+   * the two sides are a mix of Screenshots + something else. If both sides
+   * are Screenshots, or neither is, there's no obviously-more-useful side,
+   * so we leave the default (left) alone.
+   */
+  private applyDefaultCommentsTab() {
+    const leftIsShots = this.left.docType === 'screenshots';
+    const rightIsShots = this.right.docType === 'screenshots';
+    if (leftIsShots && !rightIsShots) {
+      this.activePaneSide = 'right';
+    } else if (rightIsShots && !leftIsShots) {
+      this.activePaneSide = 'left';
+    }
   }
 
   // ============================================================
@@ -762,6 +1322,22 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   paneOfPublic(side: 'left' | 'right'): PaneState {
     return this.paneOf(side);
+  }
+
+  /** Null-safe lookup into DOC_LABEL for template use — avoids indexing
+   *  Record<CompareDocType, string> with a possibly-null docType, which the
+   *  Angular template type-checker flags even behind a non-null assertion. */
+  docLabelFor(docType: CompareDocType | null): string {
+    return docType ? this.DOC_LABEL[docType] : '';
+  }
+
+  /** Order to render the two sides' blocks in the download menu — Screenshots (whichever side it's on) always sorts last, so PDF/PPTX options are seen first. */
+  downloadMenuSideOrder(): ('left' | 'right')[] {
+    const leftIsShots = this.left.docType === 'screenshots';
+    const rightIsShots = this.right.docType === 'screenshots';
+    if (leftIsShots && !rightIsShots) return ['right', 'left'];
+    if (rightIsShots && !leftIsShots) return ['left', 'right'];
+    return ['left', 'right'];
   }
 
   async loadPane(side: 'left' | 'right') {
@@ -1374,13 +1950,34 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
    * immediately with everything for the active tab, rather than only
    * whatever page happens to be "active".
    */
+  private allCommentsCache: Record<'left' | 'right', { source: CommentPin[] | null; items: any[] }> = {
+    left: { source: null, items: [] },
+    right: { source: null, items: [] }
+  };
+
+  /**
+   * This is read twice per render (the count badge + the *ngFor) and used
+   * to power the entire side comments panel — the exact place where
+   * clicking Edit and typing felt slow/flickery. It used to rebuild a
+   * brand-new sorted array (spreading every comment into a new object)
+   * on every single change-detection tick, including every keystroke
+   * inside the edit textarea. Cached per side, invalidated only when the
+   * `this.comments` array reference actually changes.
+   */
   allCommentsFor(side: 'left' | 'right'): (CommentPin & { pageLabel: string; pageIndex: number })[] {
+    const cache = this.allCommentsCache[side];
+    if (cache.source === this.comments) return cache.items;
+
     const pane = this.paneOf(side);
-    if (!pane.docType) return [];
+    if (!pane.docType) {
+      cache.source = this.comments;
+      cache.items = [];
+      return cache.items;
+    }
     const key = this.paneDocTypeKey(pane);
     const orderOf = new Map(pane.items.map((it, i) => [it.pageKey, i]));
     const labelOf = new Map(pane.items.map(it => [it.pageKey, it.label]));
-    return this.comments
+    const items = this.comments
       .filter(c => (c.doc_type as any) === key)
       .map(c => ({
         ...c,
@@ -1388,6 +1985,10 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
         pageIndex: orderOf.has(c.page_key) ? orderOf.get(c.page_key)! : 999999
       }))
       .sort((a, b) => a.pageIndex - b.pageIndex || (a.created_at > b.created_at ? 1 : -1));
+
+    cache.source = this.comments;
+    cache.items = items;
+    return items;
   }
 
   /** Scrolls a given side's pane so the item at `index` is in view and opens its attached comment box — used when a comments-panel entry is clicked. */
@@ -1497,16 +2098,69 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     const pageKey = this.currentPageKey(side);
     if (!pane.docType || !pageKey) return [];
     const key = this.paneDocTypeKey(pane);
-    return this.comments.filter(c => (c.doc_type as any) === key && c.page_key === pageKey);
+    return this.commentsIndexEntry(key, pageKey);
+  }
+
+  /**
+   * `commentsForIndex` (and the footer/pinned variants derived from it) are
+   * called from inside *ngFor loops that render every visible page/slide in
+   * both panes — so on a 20-slide deck this ran the full `this.comments`
+   * filter 20+ times per pane on EVERY change-detection cycle, each call
+   * allocating a brand-new array. New array references on every tick is
+   * what caused the pin/comment rows to flicker (Angular saw "changed"
+   * input and tore down/rebuilt the DOM every time) and made typing in any
+   * on-slide textarea feel slow (every keystroke = a full re-scan of every
+   * comment for every visible page, twice over for pinned vs footer).
+   *
+   * Fix: group `this.comments` into a Map keyed by `doc_type::page_key`
+   * once, and rebuild that Map only when the `this.comments` array
+   * reference actually changes (load/add/delete all reassign it — see the
+   * grep of `this.comments =` throughout this file). Everything else reads
+   * the same cached array reference, so unrelated *ngFor loops stop
+   * detecting a "change" and Angular leaves their DOM alone.
+   */
+  private commentsIndexSource: CommentPin[] | null = null;
+  private commentsIndexMap = new Map<string, CommentPin[]>();
+  private readonly EMPTY_COMMENTS: CommentPin[] = [];
+
+  private commentsIndexEntry(docTypeKey: string, pageKey: string): CommentPin[] {
+    if (this.commentsIndexSource !== this.comments) {
+      this.commentsIndexSource = this.comments;
+      this.commentsIndexMap = new Map<string, CommentPin[]>();
+      for (const c of this.comments) {
+        const idxKey = `${c.doc_type}::${c.page_key}`;
+        let bucket = this.commentsIndexMap.get(idxKey);
+        if (!bucket) { bucket = []; this.commentsIndexMap.set(idxKey, bucket); }
+        bucket.push(c);
+      }
+    }
+    return this.commentsIndexMap.get(`${docTypeKey}::${pageKey}`) || this.EMPTY_COMMENTS;
   }
 
   /** Same as commentsFor(), but for a specific item index rather than the pane's activeIndex — used by the vertical scroll list where every slide/page is visible at once. Returns EVERY comment on the item (both plain footer comments and pinned sticky notes) — use footerCommentsForIndex()/pinnedCommentsForIndex() to split them apart. */
   commentsForIndex(side: 'left' | 'right', index: number): CommentPin[] {
     const pane = this.paneOf(side);
     const pageKey = pane.items[index]?.pageKey;
-    if (!pane.docType || !pageKey) return [];
+    if (!pane.docType || !pageKey) return this.EMPTY_COMMENTS;
     const key = this.paneDocTypeKey(pane);
-    return this.comments.filter(c => (c.doc_type as any) === key && c.page_key === pageKey);
+    return this.commentsIndexEntry(key, pageKey);
+  }
+
+  /** trackBy for every *ngFor over CommentPin (or CommentPin & extras) lists
+   *  — the comments panel list, and the on-page comment/pin loops. Lets
+   *  Angular reuse each row's DOM node (including any focused/typing
+   *  textarea inside it) across change-detection cycles instead of
+   *  destroying and rebuilding every row each tick. */
+  trackByCommentId(_index: number, c: CommentPin): number {
+    return c.id;
+  }
+
+  /** trackBy for the left/right pane's *ngFor over PaneItem — pageKey is
+   *  stable per page/slide/screenshot even across reloads, so this lets
+   *  Angular keep each page's rendered canvas/img DOM node in place instead
+   *  of tearing it down every change-detection cycle. */
+  trackByPageKey(_index: number, it: PaneItem): string {
+    return it.pageKey;
   }
 
   /** True if a CommentPin has a real x/y pin position (a sticky note), vs a plain footer comment. */
@@ -1515,14 +2169,48 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
            c.y !== null && c.y !== undefined && (c.y as any) !== '';
   }
 
-  /** Only the plain (unpositioned) comments for an item — shown in the footer "Comment" box. */
+  /** Only the plain (unpositioned) comments for an item — shown in the footer "Comment" box. Split cache keyed the same way as commentsIndexMap, invalidated the same way (comments array reference change) — otherwise re-filtering commentsForIndex()'s already-cached array on every tick would just move the "new array every render" problem here instead. */
+  private footerSplitSource: CommentPin[] | null = null;
+  private footerSplitMap = new Map<CommentPin[], CommentPin[]>();
+  private pinnedSplitMap = new Map<CommentPin[], CommentPin[]>();
+
   footerCommentsForIndex(side: 'left' | 'right', index: number): CommentPin[] {
-    return this.commentsForIndex(side, index).filter(c => !this.hasPin(c));
+    const bucket = this.commentsForIndex(side, index);
+    if (bucket === this.EMPTY_COMMENTS) return this.EMPTY_COMMENTS;
+    if (this.footerSplitSource !== this.comments) {
+      this.footerSplitSource = this.comments;
+      this.footerSplitMap = new Map<CommentPin[], CommentPin[]>();
+      this.pinnedSplitMap = new Map<CommentPin[], CommentPin[]>();
+    }
+    let footer = this.footerSplitMap.get(bucket);
+    if (!footer) {
+      footer = bucket.filter(c => !this.hasPin(c));
+      this.footerSplitMap.set(bucket, footer);
+    }
+    return footer;
   }
 
   /** Only the pinned sticky-note comments for an item — rendered as floating notes on top of the page/slide/screenshot. */
   pinnedCommentsForIndex(side: 'left' | 'right', index: number): CommentPin[] {
-    return this.commentsForIndex(side, index).filter(c => this.hasPin(c));
+    const bucket = this.commentsForIndex(side, index);
+    if (bucket === this.EMPTY_COMMENTS) return this.EMPTY_COMMENTS;
+    if (this.footerSplitSource !== this.comments) {
+      // footerCommentsForIndex() resets both maps together when the source
+      // changes — if it hasn't run yet this call this may look stale for one
+      // extra tick, but footerCommentsForIndex is always called first per
+      // item in the template (footer box above, pins below), so in practice
+      // this branch only ever runs on the very first render of a fresh
+      // comments array.
+      this.footerSplitSource = this.comments;
+      this.footerSplitMap = new Map<CommentPin[], CommentPin[]>();
+      this.pinnedSplitMap = new Map<CommentPin[], CommentPin[]>();
+    }
+    let pinned = this.pinnedSplitMap.get(bucket);
+    if (!pinned) {
+      pinned = bucket.filter(c => this.hasPin(c));
+      this.pinnedSplitMap.set(bucket, pinned);
+    }
+    return pinned;
   }
 
   /** Numeric x%/y% helpers for template style bindings (x/y may come back from the API as strings). */
@@ -1691,10 +2379,13 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     // Keep the toolbar expanded (it was open — that's how Edit got clicked)
     // so the Colors/Cancel/Save row stays visible right after entering edit mode.
     this.expandedToolbarFor = c.id;
+    // Opening height (with extra breathing room) is handled by the
+    // cvAutoGrow directive on the textarea itself once it renders.
   }
 
   cancelEditPin(evt?: Event) {
     evt?.stopPropagation();
+    if (this.dictationTarget === 'pinEdit') this.stopDictation();
     this.editingPinId = null;
     this.editingPinText = '';
     this.showColorPicker = false;
@@ -1703,12 +2394,15 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   saveEditPin(c: CommentPin, evt?: Event) {
     evt?.stopPropagation();
+    if (this.dictationTarget === 'pinEdit') this.stopDictation();
     const text = this.editingPinText.trim();
-    if (!text) return;
+    if (!text || this.commentActionLoading[c.id]) return;
     const box_color = this.hexToRgba(this.editingPinBoxHex, this.editingPinOpacity);
     const text_color = this.editingPinTextHex;
+    this.commentActionLoading = { ...this.commentActionLoading, [c.id]: 'save' };
     this.api.post<any>(`/comparison-comments/${c.id}/update`, { text, box_color, text_color }).subscribe({
       next: (r: any) => {
+        this.commentActionLoading = { ...this.commentActionLoading, [c.id]: undefined };
         if (r?.status) {
           c.text = text;
           c.box_color = box_color;
@@ -1720,7 +2414,10 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
           this.toast.error(r?.message || 'Failed to update comment');
         }
       },
-      error: () => this.toast.error('Failed to update comment')
+      error: () => {
+        this.commentActionLoading = { ...this.commentActionLoading, [c.id]: undefined };
+        this.toast.error('Failed to update comment');
+      }
     });
   }
 
@@ -1999,12 +2696,27 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     });
   }
 
+  /** ids of comments with an in-flight resolve/delete/save request — drives
+   *  per-button loading spinners in both the on-slide box and the comments panel. */
+  commentActionLoading: Record<number, 'resolve' | 'delete' | 'save' | undefined> = {};
+
   toggleResolve(comment: CommentPin) {
     if (this.isCommentLocked(comment)) { this.toast.error('This item is marked final — unmark it to change comments.'); return; }
+    if (this.commentActionLoading[comment.id]) return;
     const next = !comment.resolved;
+    this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: 'resolve' };
     this.api.post<any>(`/comparison-comments/${comment.id}/resolve`, { resolved: next }).subscribe({
       next: (r: any) => {
-        if (r?.status) comment.resolved = next;
+        this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: undefined };
+        if (r?.status) {
+          comment.resolved = next;
+        } else {
+          this.toast.error(r?.message || 'Failed to update comment');
+        }
+      },
+      error: () => {
+        this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: undefined };
+        this.toast.error('Failed to update comment');
       }
     });
   }
@@ -2014,9 +2726,28 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     if (this.isCommentLocked(comment)) { this.toast.error('This item is marked final — unmark it to edit comments.'); return; }
     this.editingCommentId = comment.id;
     this.editingText = comment.text;
+    // Opening height (with extra breathing room) is handled by the
+    // cvAutoGrow directive on the textarea itself once it renders.
   }
 
+  /**
+   * Auto-grows a comment edit <textarea> so its full contents are visible
+   * without scrolling/manual resizing, plus a few extra blank lines of
+   * breathing room below the last line so there's obviously space to keep
+   * typing. Resets height first so shrinking text (e.g. after deleting a
+   * line) also shrinks the box back down (still keeping the extra padding).
+   */
+  autoGrow(el: HTMLTextAreaElement, extraLines: number = 3.5) {
+    if (!el) return;
+    el.style.height = 'auto';
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 16;
+    el.style.height = (el.scrollHeight + extraLines * lineHeight) + 'px';
+  }
+
+
+
   cancelEditComment() {
+    if (this.dictationTarget === 'footerEdit') this.stopDictation();
     this.editingCommentId = null;
     this.editingText = '';
   }
@@ -2027,10 +2758,13 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
    * add it alongside that one if it doesn't exist yet.
    */
   saveEditComment(comment: CommentPin) {
+    if (this.dictationTarget === 'footerEdit') this.stopDictation();
     const text = this.editingText.trim();
-    if (!text) return;
+    if (!text || this.commentActionLoading[comment.id]) return;
+    this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: 'save' };
     this.api.post<any>(`/comparison-comments/${comment.id}/update`, { text }).subscribe({
       next: (r: any) => {
+        this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: undefined };
         if (r?.status) {
           comment.text = text;
           this.editingCommentId = null;
@@ -2039,22 +2773,31 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
           this.toast.error(r?.message || 'Failed to update comment');
         }
       },
-      error: () => this.toast.error('Failed to update comment')
+      error: () => {
+        this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: undefined };
+        this.toast.error('Failed to update comment');
+      }
     });
   }
 
   deleteComment(comment: CommentPin) {
     if (this.isCommentLocked(comment)) { this.toast.error('This item is marked final — unmark it to delete comments.'); return; }
+    if (this.commentActionLoading[comment.id]) return;
     if (!confirm('Delete this comment?')) return;
+    this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: 'delete' };
     this.api.delete<any>(`/comparison-comments/${comment.id}`).subscribe({
       next: (r: any) => {
+        this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: undefined };
         if (r?.status) {
           this.comments = this.comments.filter(c => c.id !== comment.id);
         } else {
           this.toast.error(r?.message || 'Failed to delete comment');
         }
       },
-      error: () => this.toast.error('Failed to delete comment')
+      error: () => {
+        this.commentActionLoading = { ...this.commentActionLoading, [comment.id]: undefined };
+        this.toast.error('Failed to delete comment');
+      }
     });
   }
 
@@ -2102,29 +2845,47 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     return !!this.statusFor(side, index)?.is_final;
   }
 
+  /** Which item's final/pending toggle request is currently in flight, keyed the same way as itemStatuses. */
+  toggleFinalLoading: Record<string, boolean> = {};
+
   /** Flips a page/slide/screenshot between "final" and "pending", recording who did it. */
   toggleFinal(side: 'left' | 'right', index: number) {
     const pane = this.paneOf(side);
     const pageKey = pane.items[index]?.pageKey;
     if (!pane.docType || !pageKey || !this.topicId) return;
     const docType = this.paneDocTypeKey(pane);
+    const key = this.itemStatusKey(docType, pageKey);
+    if (this.toggleFinalLoading[key]) return;
 
+    this.toggleFinalLoading = { ...this.toggleFinalLoading, [key]: true };
     this.api.post<any>(`/topics/${this.topicId}/item-status/toggle`, {
       doc_type: docType,
       page_key: pageKey
     }).subscribe({
       next: (r: any) => {
+        this.toggleFinalLoading = { ...this.toggleFinalLoading, [key]: false };
         if (r?.status && r?.data) {
           this.itemStatuses = {
             ...this.itemStatuses,
-            [this.itemStatusKey(docType, pageKey)]: r.data
+            [key]: r.data
           };
         } else {
           this.toast.error(r?.message || 'Failed to update status');
         }
       },
-      error: () => this.toast.error('Failed to update status')
+      error: () => {
+        this.toggleFinalLoading = { ...this.toggleFinalLoading, [key]: false };
+        this.toast.error('Failed to update status');
+      }
     });
+  }
+
+  /** True while this item's mark-final toggle request is in flight. */
+  isToggleFinalLoading(side: 'left' | 'right', index: number): boolean {
+    const pane = this.paneOf(side);
+    const pageKey = pane.items[index]?.pageKey;
+    if (!pane.docType || !pageKey) return false;
+    return !!this.toggleFinalLoading[this.itemStatusKey(this.paneDocTypeKey(pane), pageKey)];
   }
 
   // ============================================================
@@ -2138,6 +2899,40 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
 
   downloadMenuOpen = false;
   downloadingSide: 'left' | 'right' | null = null;
+  /** Which side+kind combo's filter submenu is expanded, formatted as "left::pins" etc. Null = every submenu collapsed. */
+  downloadPdfSubmenuSide: string | null = null;
+
+  /** Toggles a given side's PDF-kind filter submenu open/closed (closing any other open one). */
+  toggleKindSubmenu(side: 'left' | 'right', kind: ExportKind) {
+    const key = `${side}::${kind}`;
+    this.downloadPdfSubmenuSide = this.downloadPdfSubmenuSide === key ? null : key;
+  }
+
+  readonly EXPORT_KIND_LABEL: Record<ExportKind, string> = {
+    clean: 'Original (clean) — exact source',
+    pins: 'PDF + pins',
+    pins_callout: 'PDF + pins & callout text',
+    appended: 'PDF + appended comment pages',
+    commented_zip: 'Commented slides + comment md (.zip)'
+  };
+  readonly EXPORT_KIND_ORDER: ExportKind[] = ['commented_zip', 'clean', 'pins', 'pins_callout', 'appended'];
+
+  readonly EXPORT_FILTER_LABEL: Record<ExportPageFilter, string> = {
+    all: 'All pages',
+    commented: 'Only commented slides',
+    not_commented: 'Only not-commented slides',
+    final: 'Only final slides',
+    not_final: 'Only not-final slides'
+  };
+  readonly EXPORT_FILTER_ORDER: ExportPageFilter[] = ['all', 'commented', 'not_commented', 'final', 'not_final'];
+
+  readonly COMMENT_FORMAT_LABEL: Record<CommentExportFormat, string> = {
+    md: 'Comments → Markdown (.md)',
+    text: 'Comments → Paper/Text',
+    docx_status: 'Comments → Word (.docx) — with status',
+    docx_clean: 'Comments → Word (.docx) — clean (for GPT)'
+  };
+  readonly COMMENT_FORMAT_ORDER: CommentExportFormat[] = ['md', 'text', 'docx_status', 'docx_clean'];
 
   /**
    * Renders one item's surface (image or canvas) onto a fresh canvas.
@@ -2289,38 +3084,183 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     if (pane.docType === 'claude_pdf') {
       await this.renderAllPdfPages(pane, side);
     } else if (pane.docType === 'claude_ppt' || pane.docType === 'gpt_ppt') {
-      for (let i = 0; i < pane.items.length; i++) {
-        await this.renderPptxSlide(pane, i);
-      }
+      // NOTE: must go through renderAllPptxSlides (not a bare loop calling
+      // renderPptxSlide directly) — renderAllPptxSlides calls
+      // sizePptxCanvas() before each slide render, which sets the canvas's
+      // actual drawing-buffer size that PptxViewJS lays out shapes/text
+      // against. Skipping it left slide 0's canvas at whatever buffer size
+      // it happened to have from its initial on-screen paint (often stale
+      // or not yet settled), so exports of the first slide came out
+      // truncated/blank while every later slide re-sized correctly.
+      await this.renderAllPptxSlides(pane, side);
     }
     // Screenshots render themselves via <img> as soon as they're in the DOM
     // (all items are always mounted in the vertical list), so nothing to do there.
   }
 
-  /** Downloads a PDF with the page images plus each page's comments printed in crisp vector text below it. */
-  async downloadWithComments(side: 'left' | 'right') {
-    await this.runDownload(side, 'pages-pdf');
+  /** Which side currently holds a non-'screenshots' document — Canvas always pulls from this side, whichever it is. */
+  private get canvasSourceSide(): 'left' | 'right' | null {
+    if (this.left.docType && this.left.docType !== 'screenshots') return 'left';
+    if (this.right.docType && this.right.docType !== 'screenshots') return 'right';
+    return null;
   }
 
-  /** Downloads a plain text/PDF log of every comment (no page images) — grouped by page. */
-  async downloadCommentLog(side: 'left' | 'right') {
-    await this.runDownload(side, 'log-pdf');
+  /** True when there's a PDF/PPTX pane available to build the Canvas screen from. */
+  get canvasAvailable(): boolean {
+    return this.canvasSourceSide !== null;
   }
 
-  private async runDownload(side: 'left' | 'right', kind: 'pages-pdf' | 'log-pdf') {
+  /** Opens the Canvas screen: rasterizes every page/slide of the non-screenshot pane and classifies each as final / commented / not assigned. */
+  async openCanvas() {
+    const side = this.canvasSourceSide;
+    if (!side) {
+      this.toast.error('Attach a PDF or PPTX (not just Screenshots) to use Canvas.');
+      return;
+    }
+    const pane = this.paneOf(side);
+    this.canvasDocLabel = this.docLabelFor(pane.docType);
+    this.canvasLoading = true;
+    this.canvasOpen = true;
+    this.cdr.markForCheck();
+
+    try {
+      await this.ensureAllItemsRendered(side);
+      const slides: CanvasSourceSlide[] = [];
+      for (let i = 0; i < pane.items.length; i++) {
+        const canvas = await this.rasterizeItem(side, i);
+        if (!canvas) continue;
+        const comments = this.commentsForIndex(side, i);
+        slides.push({
+          pageKey: pane.items[i].pageKey,
+          label: pane.items[i].label || `Page ${i + 1}`,
+          thumb: canvas.toDataURL('image/png'),
+          isFinal: this.isFinal(side, i),
+          comments: comments.map(c => ({
+            id: c.id,
+            text: c.text,
+            author: c.author,
+            resolved: c.resolved
+          }))
+        });
+      }
+      this.canvasSlides = slides;
+    } catch (e) {
+      console.error('Failed to build Canvas slide list:', e);
+      this.toast.error('Failed to load slides for Canvas.');
+    } finally {
+      this.canvasLoading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  closeCanvas() {
+    this.canvasOpen = false;
+    this.cdr.markForCheck();
+  }
+
+  /** Handles (addComment) from the Canvas screen — posts to the backend, then
+   *  pushes the result into both the main `comments` array and `canvasSlides`
+   *  so the triage board updates immediately (and the slide moves from
+   *  "Not assigned" to "Commented" since that's derived from comments.length). */
+  onCanvasAddComment(ev: { pageKey: string; text: string }) {
+    const side = this.canvasSourceSide;
+    const text = ev.text.trim();
+    if (!side || !text || !this.topicId) return;
+    const pane = this.paneOf(side);
+
+    const body: any = {
+      doc_type: this.paneDocTypeKey(pane),
+      page_key: ev.pageKey,
+      text
+    };
+
+    this.api.post<any>(`/topics/${this.topicId}/comparison-comments`, body).subscribe({
+      next: (r: any) => {
+        if (r?.status && r?.data) {
+          this.comments = [...this.comments, r.data];
+          this.canvasSlides = this.canvasSlides.map(s => s.pageKey === ev.pageKey
+            ? { ...s, comments: [...s.comments, { id: r.data.id, text: r.data.text, author: r.data.author, resolved: r.data.resolved }] }
+            : s
+          );
+          this.cdr.markForCheck();
+        } else {
+          this.toast.error(r?.message || 'Failed to add comment');
+        }
+      },
+      error: () => this.toast.error('Failed to add comment')
+    });
+  }
+
+  /** Handles (editComment) from the Canvas screen — same backend route as the
+   *  main comparison-view's inline comment editor, kept in sync with `canvasSlides`. */
+  onCanvasEditComment(ev: { commentId: number; text: string }) {
+    const text = ev.text.trim();
+    if (!text) return;
+    this.api.post<any>(`/comparison-comments/${ev.commentId}/update`, { text }).subscribe({
+      next: (r: any) => {
+        if (r?.status) {
+          const existing = this.comments.find(c => c.id === ev.commentId);
+          if (existing) existing.text = text;
+          this.canvasSlides = this.canvasSlides.map(s => ({
+            ...s,
+            comments: s.comments.map(c => c.id === ev.commentId ? { ...c, text } : c)
+          }));
+          this.cdr.markForCheck();
+        } else {
+          this.toast.error(r?.message || 'Failed to update comment');
+        }
+      },
+      error: () => this.toast.error('Failed to update comment')
+    });
+  }
+
+  /** Entry point for every "PDF of selected slides" combo (kind × filter). */
+  async downloadPagesExport(side: 'left' | 'right', kind: ExportKind, filter: ExportPageFilter) {
+    await this.runDownload(side, 'pages-pdf', kind, filter);
+  }
+
+  /** Entry point for every comment-only export format. */
+  async downloadCommentsExport(side: 'left' | 'right', format: CommentExportFormat) {
+    await this.runDownload(side, 'comments-only', 'clean', 'all', format);
+  }
+
+  private async runDownload(
+    side: 'left' | 'right',
+    mode: 'pages-pdf' | 'comments-only',
+    kind: ExportKind,
+    filter: ExportPageFilter,
+    commentFormat?: CommentExportFormat
+  ) {
     const pane = this.paneOf(side);
     if (!pane.docType || !pane.items.length) {
       this.toast.error('Nothing to download for this side yet.');
       return;
     }
     this.downloadMenuOpen = false;
+    this.downloadPdfSubmenuSide = null;
     this.downloadingSide = side;
     try {
-      if (kind === 'log-pdf') {
-        await this.buildCommentLogPdf(side);
-      } else {
+      if (mode === 'comments-only') {
+        await this.buildCommentsOnlyExport(side, commentFormat!);
+      } else if (kind === 'commented_zip') {
+        // Always restricted to commented pages, regardless of whatever filter
+        // was selected — a clean-PDF + comments-doc bundle only makes sense
+        // for the pages that actually have comments on them.
+        const indices = this.filteredIndices(side, 'commented');
+        if (!indices.length) {
+          this.toast.error('No commented slides to include.');
+          return;
+        }
         await this.ensureAllItemsRendered(side);
-        await this.buildPagesPdf(side);
+        await this.buildCommentedSlidesZip(side, indices);
+      } else {
+        const indices = this.filteredIndices(side, filter);
+        if (!indices.length) {
+          this.toast.error(`No pages match "${this.EXPORT_FILTER_LABEL[filter]}".`);
+          return;
+        }
+        await this.ensureAllItemsRendered(side);
+        await this.buildPagesPdf(side, kind, indices);
       }
     } catch (e: any) {
       this.toast.error('Failed to build the download: ' + (e?.message || 'unknown error'));
@@ -2329,57 +3269,368 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
     }
   }
 
+  /** Resolves an ExportPageFilter into the concrete list of item indices for a side. */
+  private filteredIndices(side: 'left' | 'right', filter: ExportPageFilter): number[] {
+    const pane = this.paneOf(side);
+    const all = pane.items.map((_, i) => i);
+    switch (filter) {
+      case 'commented':
+        return all.filter(i => this.commentsForIndex(side, i).length > 0);
+      case 'not_commented':
+        return all.filter(i => this.commentsForIndex(side, i).length === 0);
+      case 'final':
+        return all.filter(i => this.isFinal(side, i));
+      case 'not_final':
+        return all.filter(i => !this.isFinal(side, i));
+      case 'all':
+      default:
+        return all;
+    }
+  }
+
   private filenameFor(side: 'left' | 'right', suffix: string): string {
     const pane = this.paneOf(side);
     const baseLabel = pane.docType ? this.DOC_LABEL[pane.docType] : 'document';
     const docLabel = pane.version ? `${baseLabel}_${pane.version}` : baseLabel;
     const topicName = (this.topic?.topic_code || this.topic?.name || 'topic').toString().replace(/[^\w\-]+/g, '_');
-    return `${topicName}_${docLabel.replace(/\s+/g, '_')}_${suffix}.pdf`;
+    return `${topicName}_${docLabel.replace(/\s+/g, '_')}_${suffix}`;
   }
 
-  /** Builds a PDF from every rendered page/slide/screenshot of a side, with each page's comment thread printed as sharp vector text underneath it. */
-  private async buildPagesPdf(side: 'left' | 'right') {
+  /**
+   * Builds a PDF from a chosen subset of a side's page/slide/screenshot
+   * images, in one of four visual variants:
+   *  - clean:         exact source image, no pins or comment text at all.
+   *  - pins:           source image + small numbered pin markers where
+   *                     comments were placed (no comment text on the page).
+   *  - pins_callout:   source image + numbered pin markers AND each pin's
+   *                     comment text drawn in a callout box below the page.
+   *  - appended:       source image with NO markers, but every commented
+   *                     page is followed by a separate "comments" page
+   *                     listing that page's thread in full.
+   * Plain (unpositioned/footer) comments are only ever shown via callouts
+   * in 'pins_callout' and 'appended' modes — they have no x/y to pin, so
+   * they're listed in the callout/appended block same as pinned ones.
+   */
+  private async buildPagesPdf(side: 'left' | 'right', kind: ExportKind, indices: number[], returnBlob = false): Promise<Blob | null> {
     const pane = this.paneOf(side);
     let pdf: jsPDF | null = null;
+    const pageWidthPt = 595; // A4-ish width in points, images scaled to fit
 
-    for (let i = 0; i < pane.items.length; i++) {
+    for (const i of indices) {
       const canvas = await this.rasterizeItem(side, i);
       if (!canvas) continue;
 
-      const comments = this.commentsForIndex(side, i);
-      const marginHeightPt = comments.length ? 30 + comments.length * 44 : 0;
+      const comments = kind === 'clean' ? [] : this.commentsForIndex(side, i);
+      const pinned = comments.filter(c => c.x != null && c.y != null);
 
-      // Page size in points, matching the image's aspect ratio, plus room
-      // for the comment block if there are any comments on this page.
-      const pageWidthPt = 595; // A4-ish width in points, images scaled to fit
+      const showCallouts = kind === 'pins_callout';
+      const marginHeightPt = showCallouts && comments.length ? 30 + comments.length * 44 : 0;
+
       const pageImgHeightPt = (canvas.height / canvas.width) * pageWidthPt;
-      const pageHeightPt = pageImgHeightPt + marginHeightPt + 20;
+      // No flat padding around the slide image itself — the page is sized to
+      // exactly match the image (edge-to-edge, no white top/bottom border).
+      // Extra height is only added when there's a callout block to fit below it.
+      const pageHeightPt = pageImgHeightPt + marginHeightPt;
 
       if (!pdf) {
-        pdf = new jsPDF({ unit: 'pt', format: [pageWidthPt, pageHeightPt] });
+        // NOTE: the constructor's `format: [w, h]` option — unlike addPage()'s
+        // — does NOT reliably size page 1 to the exact [w, h] given unless an
+        // explicit orientation is also passed. Without it, jsPDF falls back to
+        // a default page height for page 1 only, leaving the correctly-sized
+        // image top-aligned inside a taller page (white padding underneath).
+        // Every later page went through addPage() below, which already passed
+        // orientation explicitly and was therefore sized correctly — that's
+        // why only the very first exported page/slide showed this gap.
+        pdf = new jsPDF({ unit: 'pt', format: [pageWidthPt, pageHeightPt], orientation: pageHeightPt > pageWidthPt ? 'p' : 'l' });
       } else {
         pdf.addPage([pageWidthPt, pageHeightPt], pageHeightPt > pageWidthPt ? 'p' : 'l');
       }
 
-      // PNG (not JPEG) preserves sharp edges/text in the source image — the
-      // previous JPEG-at-0.92 encoding was the other main source of blur on
-      // screenshots that already contained small text.
+      // PNG (not JPEG) preserves sharp edges/text in the source image.
+      // Placed at y=0 so the slide image fills the page exactly, no white border.
       const imgData = canvas.toDataURL('image/png');
-      pdf.addImage(imgData, 'PNG', 0, 10, pageWidthPt, pageImgHeightPt, undefined, 'FAST');
+      pdf.addImage(imgData, 'PNG', 0, 0, pageWidthPt, pageImgHeightPt, undefined, 'FAST');
 
-      if (comments.length) {
+      if ((kind === 'pins' || kind === 'pins_callout') && pinned.length) {
+        this.drawPinMarkers(pdf, pinned, 0, 0, pageWidthPt, pageImgHeightPt);
+      }
+
+      if (showCallouts && comments.length) {
         this.drawCommentBlock(pdf, comments, 14, pageImgHeightPt + 24, pageWidthPt - 28);
+      }
+
+      if (kind === 'appended' && comments.length) {
+        pdf.addPage([pageWidthPt, pageHeightPt], 'p');
+        this.drawAppendedCommentPage(pdf, comments, pane.items[i]?.label || `Page ${i + 1}`, pageWidthPt);
       }
     }
 
     if (!pdf) {
       this.toast.error('Nothing rendered to export yet.');
-      return;
+      return null;
     }
-    pdf.save(this.filenameFor(side, 'with_comments'));
+    if (returnBlob) {
+      return pdf.output('blob');
+    }
+    const suffixMap: Record<ExportKind, string> = {
+      clean: 'original', pins: 'with_pins', pins_callout: 'with_pins_and_comments', appended: 'with_appended_comments',
+      commented_zip: 'commented_slides' // never actually hit — commented_zip returns a blob via buildCommentedSlidesZip instead, but the Record type requires every ExportKind to have an entry
+    };
+    pdf.save(`${this.filenameFor(side, suffixMap[kind])}.pdf`);
+    return null;
   }
 
-  /** Builds a text-only PDF listing every comment for a side, grouped by page/slide, with a branded VidyaMine letterhead (logo + brand blue) up top and each comment card showing its publisher (the admin who wrote it). */
+  /**
+   * Builds the "Commented slides + comment doc" .zip:
+   *  - a clean PDF (no pins/callouts) of only the commented pages
+   *  - a clean .md file (one explainer line + comment text grouped by page,
+   *    no author/status/date/topic heading) listing comments for those same pages
+   * and triggers a single .zip download containing both.
+   */
+  private async buildCommentedSlidesZip(side: 'left' | 'right', indices: number[]) {
+    const pdfBlob = await this.buildPagesPdf(side, 'clean', indices, true);
+    if (!pdfBlob) {
+      this.toast.error('Nothing rendered to export yet.');
+      return;
+    }
+
+    const indexSet = new Set(indices);
+    const commentsForZip = this.allCommentsFor(side).filter(c => indexSet.has(c.pageIndex));
+    if (!commentsForZip.length) {
+      this.toast.error('No comments to include.');
+      return;
+    }
+    // indices is the exact, ordered list of original page indices that went
+    // into the PDF above (position i in `indices` === PDF page i+1). Since
+    // the PDF only contains commented pages, its page numbers don't line up
+    // with the original deck's page numbers (e.g. original "Page 11" might
+    // land on PDF page 4) — so we map original pageIndex -> PDF page number
+    // here and show both in the .md, letting someone reading the PDF
+    // sequentially find the right section without knowing the original numbering.
+    const pdfPageNumberByIndex = new Map<number, number>();
+    indices.forEach((origIndex, i) => pdfPageNumberByIndex.set(origIndex, i + 1));
+    const mdBlob = this.buildCommentsMarkdownClean(commentsForZip, pdfPageNumberByIndex);
+
+    const zip = new JSZip();
+    zip.file(`${this.filenameFor(side, 'commented_slides')}.pdf`, pdfBlob);
+    zip.file(`${this.filenameFor(side, 'comments')}.md`, mdBlob);
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    this.triggerBlobDownload(zipBlob, `${this.filenameFor(side, 'commented_slides')}.zip`);
+  }
+
+  /** Draws small numbered circular pin markers over a page image at each pinned comment's stored x/y (0–100% of the page image's own width/height). Numbers match the order comments are listed in the callout block / appended page, so a reader can cross-reference "pin 3" to "comment 3". */
+  private drawPinMarkers(pdf: jsPDF, pinned: CommentPin[], imgX: number, imgY: number, imgWidthPt: number, imgHeightPt: number) {
+    const BRAND = this.BRAND;
+    pinned.forEach((c, idx) => {
+      const px = imgX + (Number(c.x) / 100) * imgWidthPt;
+      const py = imgY + (Number(c.y) / 100) * imgHeightPt;
+      const r = 8;
+      pdf.setFillColor(BRAND.r, BRAND.g, BRAND.b);
+      pdf.setDrawColor(255, 255, 255);
+      pdf.setLineWidth(1.2);
+      pdf.circle(px, py, r, 'FD');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text(String(idx + 1), px, py + 3, { align: 'center' });
+    });
+  }
+
+  /** Draws a dedicated "comments for this page" page — used by the 'appended' export kind, which keeps the source image itself completely unmarked and instead follows it with this page. */
+  private drawAppendedCommentPage(pdf: jsPDF, comments: CommentPin[], pageLabel: string, pageWidthPt: number) {
+    const BRAND = this.BRAND;
+    const INK = { r: 30, g: 32, b: 44 };
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(13);
+    pdf.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+    pdf.text(`Comments — ${pageLabel}`, 14, 26);
+    pdf.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
+    pdf.setLineWidth(1);
+    pdf.line(14, 33, pageWidthPt - 14, 33);
+    this.drawCommentBlock(pdf, comments, 14, 50, pageWidthPt - 28);
+  }
+
+  /** Routes a comment-only export request to the right builder based on format. */
+  private async buildCommentsOnlyExport(side: 'left' | 'right', format: CommentExportFormat) {
+    const all = this.allCommentsFor(side);
+    if (!all.length) {
+      this.toast.error('No comments to include.');
+      return;
+    }
+    switch (format) {
+      case 'md':
+        this.buildCommentsMarkdown(side, all);
+        return;
+      case 'text':
+        await this.buildCommentLogPdf(side); // "Paper/Text" — laid out as a readable printable PDF
+        return;
+      case 'docx_status':
+        await this.buildCommentsDocx(side, all, true);
+        return;
+      case 'docx_clean':
+        await this.buildCommentsDocx(side, all, false);
+        return;
+    }
+  }
+
+  /** Downloads a plain .md file listing every comment for a side, grouped by page, in GitHub-flavored Markdown. Includes author/date/resolved status since Markdown readers are almost always technical/internal. */
+  /**
+   * Builds the clean, no-metadata comments file used inside the
+   * "Commented slides + comment doc (.zip)" bundle: no topic/title heading,
+   * no author/date/resolved status — just a one-line explainer followed by
+   * "PDF Page N (Original <label>)" headings — since the PDF only contains
+   * commented pages, its own page numbers don't match the original deck's
+   * page numbers, so both are shown to avoid ambiguity — with the plain
+   * comment text under each. Returns the markdown as a Blob to be zipped
+   * alongside the PDF (see buildCommentedSlidesZip).
+   */
+  private buildCommentsMarkdownClean(all: (CommentPin & { pageLabel: string; pageIndex: number })[], pdfPageNumberByIndex: Map<number, number>): Blob {
+    const lines: string[] = [];
+    lines.push(
+      'This file contains page-wise comments and correction instructions for the PDF slides. ' +
+      'It serves as a review document, highlighting the changes that need to be made on each slide ' +
+      'to improve the content, mathematical notation, alignment, formatting, and overall presentation quality. ' +
+      'Each comment corresponds to a specific page of the PDF and clearly describes the required correction ' +
+      'so that the slides can be updated accurately before finalization.'
+    );
+    lines.push('');
+    lines.push(
+      '*Headings below refer to the page number inside this exported PDF, which only contains the commented pages, in order.*'
+    );
+    lines.push('');
+
+    let lastPage = '';
+    for (const c of all) {
+      if (c.pageLabel !== lastPage) {
+        lastPage = c.pageLabel;
+        const pdfPageNum = pdfPageNumberByIndex.get(c.pageIndex);
+        const heading = pdfPageNum != null ? `## Page ${pdfPageNum}` : `## ${lastPage}`;
+        lines.push(heading);
+        lines.push('');
+      }
+      lines.push(c.text.replace(/\n/g, '  \n'));
+      lines.push('');
+    }
+
+    return new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+  }
+
+  private buildCommentsMarkdown(side: 'left' | 'right', all: (CommentPin & { pageLabel: string })[]) {
+    const pane = this.paneOf(side);
+    const docLabel = pane.docType
+      ? (pane.version ? `${this.DOC_LABEL[pane.docType]} (${this.versionLabel(pane.version)})` : this.DOC_LABEL[pane.docType])
+      : '';
+    const topicName = this.topic?.name || 'Topic';
+    const topicCode = this.topic?.topic_code || '';
+
+    const lines: string[] = [];
+    lines.push(`# ${topicName}`);
+    if (topicCode) lines.push(`*Topic code: ${topicCode}*`);
+    lines.push(`*${docLabel} — Comment Log*`);
+    lines.push('');
+    lines.push(`**${all.length} comment${all.length === 1 ? '' : 's'}** · ${all.filter(c => c.resolved).length} resolved`);
+    lines.push('');
+
+    let lastPage = '';
+    for (const c of all) {
+      if (c.pageLabel !== lastPage) {
+        lastPage = c.pageLabel;
+        lines.push(`## ${lastPage}`);
+        lines.push('');
+      }
+      const meta = [c.author || 'Unknown', c.created_at, c.resolved ? 'Resolved' : null].filter(Boolean).join(' · ');
+      lines.push(`- **${meta}**`);
+      lines.push(`  ${c.text.replace(/\n/g, '\n  ')}`);
+      lines.push('');
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    this.triggerBlobDownload(blob, `${this.filenameFor(side, 'comments')}.md`);
+  }
+
+  /**
+   * Downloads a Word (.docx) comment log. Two variants:
+   *  - withStatus = true:  includes author, timestamp, and resolved/open
+   *                        status per comment — the internal/admin version.
+   *  - withStatus = false: strips author/date/resolved, leaving only the
+   *                        page label and comment text — a "clean" copy
+   *                        meant for pasting into ChatGPT/Claude prompts
+   *                        without extra internal metadata.
+   */
+  private async buildCommentsDocx(side: 'left' | 'right', all: (CommentPin & { pageLabel: string })[], withStatus: boolean, returnBlob = false): Promise<Blob | null> {
+    const pane = this.paneOf(side);
+    const docLabel = pane.docType
+      ? (pane.version ? `${this.DOC_LABEL[pane.docType]} (${this.versionLabel(pane.version)})` : this.DOC_LABEL[pane.docType])
+      : '';
+    const topicName = this.topic?.name || 'Topic';
+    const topicCode = this.topic?.topic_code || '';
+    const BRAND_HEX = '00709E';
+
+    const children: Paragraph[] = [];
+    children.push(new Paragraph({ text: topicName, heading: HeadingLevel.TITLE }));
+    const subParts = [topicCode && `Topic ${topicCode}`, `${docLabel} — Comment Log`].filter(Boolean).join('   ·   ');
+    if (subParts) {
+      children.push(new Paragraph({ children: [new TextRun({ text: subParts, color: '6B7280', italics: true })] }));
+    }
+    if (withStatus) {
+      const resolvedCount = all.filter(c => c.resolved).length;
+      children.push(new Paragraph({
+        spacing: { before: 120, after: 200 },
+        children: [new TextRun({ text: `${all.length} comment${all.length === 1 ? '' : 's'} · ${resolvedCount} resolved`, bold: true, color: BRAND_HEX })]
+      }));
+    } else {
+      children.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+    }
+
+    let lastPage = '';
+    for (const c of all) {
+      if (c.pageLabel !== lastPage) {
+        lastPage = c.pageLabel;
+        children.push(new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 240, after: 80 },
+          children: [new TextRun({ text: lastPage, color: BRAND_HEX, bold: true })]
+        }));
+      }
+      if (withStatus) {
+        const meta = [c.author || 'Unknown', c.created_at, c.resolved ? 'Resolved' : 'Open'].filter(Boolean).join('  ·  ');
+        children.push(new Paragraph({
+          spacing: { before: 100 },
+          children: [new TextRun({ text: meta, italics: true, color: '808080', size: 18 })]
+        }));
+      }
+      children.push(new Paragraph({
+        spacing: { after: 120 },
+        children: [new TextRun({ text: c.text })]
+      }));
+    }
+
+    const doc = new Document({
+      sections: [{ properties: {}, children }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    if (returnBlob) {
+      return blob;
+    }
+    const suffix = withStatus ? 'comments_with_status' : 'comments_clean';
+    this.triggerBlobDownload(blob, `${this.filenameFor(side, suffix)}.docx`);
+    return null;
+  }
+
+  /** Shared blob-download trigger used by every non-jsPDF export (docx, md). jsPDF exports use pdf.save() instead, which does the same thing internally. */
+  private triggerBlobDownload(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }
+
+  /** Builds a text-only PDF listing every comment for a side, grouped by page/slide, with a branded VidyaMine letterhead (logo + brand blue) up top and each comment card showing its publisher (the admin who wrote it). Used as the "Paper/Text" comment export. */
   private async buildCommentLogPdf(side: 'left' | 'right') {
     const pane = this.paneOf(side);
     const all = this.allCommentsFor(side);
@@ -2544,6 +3795,6 @@ export class CompareViewComponent implements OnInit, OnDestroy, AfterViewInit {
       pdf.text(`Page ${p} of ${totalPages}`, pageWidth - marginX, pageHeight - 18, { align: 'right' });
     }
 
-    pdf.save(this.filenameFor(side, 'comment_log'));
+    pdf.save(`${this.filenameFor(side, 'comments_text')}.pdf`);
   }
 }

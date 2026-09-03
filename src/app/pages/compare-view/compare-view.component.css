@@ -5,6 +5,60 @@
   color: var(--text-primary, #e8eaf0);
 }
 
+/* ── Custom resize grip for the comment edit textareas ─────────────────
+   The browser's native resize handle (bottom-right corner of a
+   resize:vertical textarea) is a tiny, low-contrast diagonal scratch that's
+   easy to miss. Textareas don't support ::after content directly, so each
+   one is wrapped in a plain .cv-resizable-wrap div and a small pill-shaped
+   badge sits in its bottom-right corner as a clear "drag to resize"
+   affordance. pointer-events:none keeps the badge out of the way so the
+   native drag-to-resize still works exactly as before, on the actual
+   native handle underneath it — this purely makes it easy to notice. */
+.cv-resizable-wrap {
+  position: relative;
+  display: block;
+}
+.cv-resizable-wrap::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(135deg, transparent 46%, var(--accent, #6366f1) 46% 54%, transparent 54%),
+    linear-gradient(135deg, transparent 71%, var(--accent, #6366f1) 71% 79%, transparent 79%);
+  background-size: 9px 9px;
+  background-repeat: no-repeat;
+  opacity: 0.55;
+}
+.cv-resizable-wrap:hover::after,
+.cv-resizable-wrap:focus-within::after {
+  opacity: 0.9;
+}
+
+/* When fullscreen, the HOST element itself must escape to a fixed,
+   full-viewport overlay — not just the inner .cv-root. Angular scopes
+   styles per-component, but :host is still a normal DOM node sitting
+   inside the app shell's layout (next to the sidebar). If any ancestor
+   between :host and the shell's sidebar creates its own stacking context
+   (e.g. has its own z-index/transform), then giving only the *inner*
+   .cv-root a high z-index isn't enough — that z-index is only compared
+   against siblings inside the same stacking context, so the sidebar can
+   still paint on top. Promoting :host itself removes that ancestor trap
+   entirely. Kept in sync with .cv-appfullscreen below (same rules) via
+   the `cv-host-appfullscreen` class toggled in the component whenever
+   `.cv-appfullscreen` is toggled. */
+:host(.cv-host-appfullscreen) {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+  margin: 0 !important;
+}
+
 .cv-root {
   display: flex;
   flex-direction: column;
@@ -26,12 +80,60 @@
   align-items: center;
   gap: 14px;
 }
+.cv-topbar-row1 {
+  margin: -10px -20px 0;
+  padding: 10px 20px;
+  background: #0c4a3e;
+  border-bottom: 1px solid #0a3d33;
+}
 .cv-topbar-row2 {
   gap: 8px;
   padding-top: 2px;
   border-top: 1px dashed var(--border-light, #2e3447);
   padding-top: 8px;
 }
+
+/* ── Teal theme for row 1 only (Back / topic code / Prev / Next / doc
+     shortcuts / Download / Change documents / fullscreen icon). Row 2
+     keeps the original dark-surface styling. Colors here are fixed
+     (not theme-variable-driven) since row 1's teal background is fixed
+     too — this keeps contrast correct in both light and dark app themes. ── */
+.cv-topbar-row1 .cv-panetoggles {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.22);
+}
+.cv-topbar-row1 .cv-back,
+.cv-topbar-row1 .cv-panetogglebtn,
+.cv-topbar-row1 .cv-downloadbtn,
+.cv-topbar-row1 .cv-changebtn,
+.cv-topbar-row1 .cv-appfullscreenbtn {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.24);
+  color: #eafff8;
+}
+.cv-topbar-row1 .cv-back:hover,
+.cv-topbar-row1 .cv-panetogglebtn:hover,
+.cv-topbar-row1 .cv-downloadbtn:hover:not(:disabled),
+.cv-topbar-row1 .cv-changebtn:hover,
+.cv-topbar-row1 .cv-appfullscreenbtn:hover {
+  background: rgba(255,255,255,0.2);
+  color: #ffffff;
+}
+.cv-topbar-row1 .cv-panetogglebtn.active,
+.cv-topbar-row1 .cv-appfullscreenbtn.active {
+  background: #eafff8;
+  border-color: #eafff8;
+  color: #0c4a3e;
+}
+.cv-topbar-row1 .cv-topiccode { color: #ffffff; }
+.cv-topbar-row1 .cv-topicnav-spinner { color: rgba(234,255,248,0.8); }
+.cv-topbar-row1 .cv-downloadbtn {
+  background: #17b8a6;
+  border-color: rgba(255,255,255,0.18);
+  color: #05261f;
+  font-weight: 700;
+}
+.cv-topbar-row1 .cv-downloadbtn:hover:not(:disabled) { background: #1fd1bd; }
 .cv-back {
   background: transparent;
   border: 1px solid var(--border, #252a38);
@@ -44,7 +146,23 @@
 .cv-back:hover { background: var(--bg-hover, #1f2433); color: var(--text-primary); }
 .cv-title { display: flex; align-items: center; gap: 10px; }
 .cv-topicname { font-size: 15px; font-weight: 600; }
-.cv-topiccode { font-size: 10.5px; color: var(--text-muted, #50566e); font-family: 'Courier New', monospace; }
+.cv-topiccode { font-size: 15.5px; color: #ffffff; font-family: 'Courier New', monospace; font-weight: 700; letter-spacing: 0.2px; }
+.cv-topicnavbtn {
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cv-topicnavbtn-prev { background: #b8860b; }
+.cv-topicnavbtn-prev:hover:not(:disabled) { background: #9a7009; }
+.cv-topicnavbtn-next { background: #2563eb; }
+.cv-topicnavbtn-next:hover:not(:disabled) { background: #1d4ed8; }
+.cv-topicnavbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cv-topicnav-spinner { font-size: 12px; color: var(--text-muted, #50566e); }
 .cv-spacer { flex: 1; }
 .cv-changebtn {
   background: var(--accent-dim, rgba(99,102,241,0.12));
@@ -57,6 +175,45 @@
   cursor: pointer;
 }
 .cv-changebtn:hover { background: var(--accent-glow, rgba(99,102,241,0.25)); }
+
+.cv-appfullscreenbtn {
+  background: var(--bg-hover, #1f2433);
+  color: var(--text-secondary, #a6acc4);
+  border: 1px solid var(--border, #252a38);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cv-appfullscreenbtn:hover { background: var(--bg-hover-strong, #262c3d); color: var(--text-primary); }
+.cv-appfullscreenbtn.active {
+  background: var(--accent-dim, rgba(99,102,241,0.12));
+  color: var(--accent, #6366f1);
+  border-color: rgba(99,102,241,0.35);
+}
+.cv-appfullscreenbtn-icon {
+  padding: 7px 9px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ── App-level full screen: makes .cv-root a fixed, full-viewport overlay
+     that sits above the app shell's sidebar/header (whatever z-index they
+     use — this is intentionally very high). Toggled by .cv-appfullscreenbtn
+     above; body scroll is also frozen via .cv-body-appfullscreen (added to
+     <body> in the component) so the page behind can't scroll underneath. ── */
+.cv-appfullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+  margin: 0 !important;
+}
+::ng-deep body.cv-body-appfullscreen {
+  overflow: hidden;
+}
 
 /* ── Header pane-visibility toggles (left / right / comments) ── */
 .cv-panetoggles {
@@ -85,6 +242,28 @@
   background: var(--accent-dim, rgba(99,102,241,0.12));
   color: var(--accent, #6366f1);
 }
+
+/* ── Assign-to-user dropdown ── sits just left of the sync button in the
+   top bar so a topic can be (re)assigned without leaving compare-view. ── */
+.cv-assignwrap {
+  display: flex;
+  align-items: center;
+}
+.cv-assignwrap.busy { opacity: 0.6; pointer-events: none; }
+.cv-assignselect {
+  background: var(--bg-elevated, #1a1e2a);
+  border: 1px solid var(--border, #252a38);
+  color: var(--text-muted, #50566e);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 140px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.cv-assignselect:hover { color: var(--text-secondary, #8b90a7); border-color: var(--border-light, #2e3447); }
+.cv-assignselect:disabled { cursor: default; opacity: 0.6; }
 
 /* ── Sync-scroll toggle ── grey/off by default, flips to green/on when
    active. Sits just left of the pane toggles in the top bar. ── */
@@ -324,6 +503,9 @@
   transform-origin: top center;
   transition: transform 0.1s ease-out;
 }
+.cv-vitem[hidden] {
+  display: none !important;
+}
 .cv-vitem-label {
   font-size: 11px;
   font-weight: 600;
@@ -416,6 +598,10 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
 }
 .cv-item-finalbtn:hover:not(:disabled) { border-color: #22c55e; color: #22c55e; }
 .cv-item-finalbtn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -609,6 +795,7 @@
 
 .cv-sticky-toolbar {
   display: flex;
+  align-items: center;
   gap: 5px;
   flex-wrap: wrap;
   background: rgba(20, 22, 30, 0.92);
@@ -629,6 +816,13 @@
 }
 .cv-sticky-toolbar button:hover:not(:disabled) { border-color: var(--accent, #6366f1); color: #fff; }
 .cv-sticky-toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* .cv-mic-btn must stay round even inside the sticky toolbar's generic
+   button styling above (same selector specificity, so the more specific
+   two-class selector below is needed to win). */
+.cv-sticky-toolbar button.cv-mic-btn {
+  border-radius: 50%;
+  padding: 0;
+}
 
 .cv-sticky-edittext {
   width: 100%;
@@ -643,6 +837,10 @@
   font-size: 12px;
   outline: none;
   margin-bottom: 6px;
+  overflow-y: hidden;
+  min-height: 60px;
+  max-height: 60vh;
+  transition: height 0.1s ease-out;
 }
 .cv-sticky-edittext:focus { border-color: var(--accent, #6366f1); }
 
@@ -775,18 +973,27 @@
   padding: 1px 8px;
 }
 .cv-ac-text { font-size: 12.5px; line-height: 1.55; color: var(--text-primary); word-break: break-word; white-space: pre-wrap; }
-.cv-ac-actions { display: flex; gap: 6px; margin-top: 8px; }
-.cv-ac-actions button {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  border-radius: 20px;
-  padding: 3px 10px;
+.cv-ac-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cv-ac-actions .cv-ac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  white-space: nowrap;
+  border-radius: 5px;
+  padding: 4px 12px;
   font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.6;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: filter 0.15s, opacity 0.15s;
 }
-.cv-ac-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.cv-ac-actions .cv-ac-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cv-ac-actions .cv-ac-btn:hover:not(:disabled) { filter: brightness(1.12); }
+
+.cv-ac-btn-edit { background: #2563eb; border: 1px solid #1d4ed8; color: #ffffff; }
+.cv-ac-btn-resolve { background: #16a34a; border: 1px solid #15803d; color: #ffffff; }
+.cv-ac-btn-delete { background: #dc2626; border: 1px solid #b91c1c; color: #ffffff; }
 
 .cv-ac-edittext,
 .cv-attached-compose textarea {
@@ -801,7 +1008,10 @@
   font-size: 12.5px;
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  overflow-y: hidden;
+  min-height: 44px;
+  max-height: 60vh;
+  transition: border-color 0.15s, box-shadow 0.15s, height 0.1s ease-out;
 }
 .cv-ac-edittext:focus,
 .cv-attached-compose textarea:focus {
@@ -812,6 +1022,7 @@
 .cv-ac-editactions,
 .cv-attached-compose-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
@@ -836,6 +1047,11 @@
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(99,102,241,0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  min-height: 16px;
 }
 .cv-ac-save:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 .cv-ac-save:hover:not(:disabled) { filter: brightness(1.08); }
@@ -1025,7 +1241,7 @@
   margin-bottom: 3px;
 }
 .cv-comment-text { font-size: 12.5px; line-height: 1.5; color: var(--text-primary); word-break: break-word; }
-.cv-comment-actions { display: flex; gap: 8px; margin-top: 7px; }
+.cv-comment-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
 .cv-comment-actions button {
   background: none;
   border: 1px solid var(--border);
@@ -1034,8 +1250,71 @@
   padding: 3px 8px;
   font-size: 10.5px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 20px;
 }
 .cv-comment-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.cv-comment-actions button:disabled { opacity: 0.6; cursor: default; }
+.cv-comment-actions button.cv-mic-btn {
+  border-radius: 50%;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+}
+.cv-comment-actions button.cv-mic-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.cv-comment-actions button.cv-ac-btn-edit,
+.cv-comment-actions .cv-ac-btn-edit { background: #2563eb; border: 1px solid #1d4ed8; color: #ffffff; }
+.cv-comment-actions button.cv-ac-btn-resolve,
+.cv-comment-actions .cv-ac-btn-resolve { background: #16a34a; border: 1px solid #15803d; color: #ffffff; }
+.cv-comment-actions button.cv-ac-btn-delete,
+.cv-comment-actions .cv-ac-btn-delete { background: #dc2626; border: 1px solid #b91c1c; color: #ffffff; }
+
+.cv-comment-editbox {
+  width: 100%;
+  resize: vertical;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  box-sizing: border-box;
+  margin-top: 4px;
+  overflow-y: hidden;
+  min-height: 60px;
+  max-height: 60vh;
+  transition: border-color 0.15s, box-shadow 0.15s, height 0.1s ease-out;
+}
+.cv-comment-editbox:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim, rgba(99,102,241,0.12));
+}
+.cv-comment-save {
+  background: var(--accent, #6366f1) !important;
+  border-color: var(--accent, #6366f1) !important;
+  color: #fff !important;
+}
+
+/* Generic small inline spinner used inside any action button to show a
+   request in flight — replaces the button's label text while active. */
+.cv-btn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: cv-btn-spin 0.7s linear infinite;
+  opacity: 0.85;
+}
+@keyframes cv-btn-spin {
+  to { transform: rotate(360deg); }
+}
 
 .cv-comments-hint {
   flex: none;
@@ -1049,16 +1328,18 @@
 /* ── Download menu (top bar) ── */
 .cv-downloadwrap { position: relative; }
 .cv-downloadbtn {
-  background: var(--bg-elevated, #1a1e2a);
-  border: 1px solid var(--border, #252a38);
-  color: var(--text-primary);
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  border: 1px solid #0ea5e9;
+  color: #fff;
   border-radius: 6px;
   padding: 7px 14px;
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 2px 10px rgba(14, 165, 233, 0.35);
 }
-.cv-downloadbtn:hover { border-color: var(--accent); color: var(--accent); }
+.cv-downloadbtn:hover { filter: brightness(1.08); box-shadow: 0 3px 14px rgba(14, 165, 233, 0.5); }
+.cv-downloadbtn:disabled { opacity: .6; cursor: not-allowed; filter: none; box-shadow: none; }
 .cv-downloadmenu {
   position: absolute;
   top: calc(100% + 6px);
@@ -1075,13 +1356,18 @@
   z-index: 50;
 }
 .cv-downloadmenu-section {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  padding: 8px 10px 4px;
+  letter-spacing: 0.05em;
+  color: var(--accent, #6366f1);
+  background: var(--accent-dim, rgba(99,102,241,0.14));
+  border-left: 3px solid var(--accent, #6366f1);
+  border-radius: 4px;
+  padding: 7px 10px;
+  margin: 4px 2px 2px;
 }
+.cv-downloadmenu-section:first-child { margin-top: 2px; }
 .cv-downloadmenu button {
   background: none;
   border: none;
@@ -1094,6 +1380,62 @@
 }
 .cv-downloadmenu button:hover:not(:disabled) { background: var(--bg-hover, #1f2433); }
 .cv-downloadmenu button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Wider variant used by the expanded export menu (kind + filter + comment formats). */
+.cv-downloadmenu-wide {
+  min-width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.cv-downloadmenu-group {
+  border-top: 1px solid var(--border, #252a38);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.cv-downloadmenu-group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.cv-downloadmenu-subhead {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 6px 10px 2px;
+}
+.cv-downloadmenu-kindbtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cv-downloadmenu-kindbtn.active { background: var(--bg-hover, #1f2433); color: var(--accent); }
+/* "Commented slides + comment doc (.zip)" — called out in green since it's the
+   most commonly-used export, pinned to the top of the list. */
+.cv-downloadmenu-kindbtn.cv-downloadmenu-highlight {
+  background: rgba(34, 197, 94, 0.14);
+  color: #4ade80;
+  font-weight: 700;
+  border-radius: 6px;
+}
+.cv-downloadmenu-kindbtn.cv-downloadmenu-highlight:hover { background: rgba(34, 197, 94, 0.24); }
+.cv-downloadmenu-caret {
+  font-size: 10px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.cv-downloadmenu-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--border-light, #2e3447);
+  margin: 0 10px 4px;
+}
+.cv-downloadmenu-filters button {
+  font-size: 11.5px;
+  padding: 6px 8px;
+  color: var(--text-secondary, var(--text-primary));
+}
 
 /* ══════════════════════════════════════════════════════════
    DOWNLOAD BUTTON LOADING SPINNER
@@ -1122,36 +1464,41 @@
    COMMENT DISPLAY-MODE DROPDOWN (top toolbar)
    ══════════════════════════════════════════════════════════ */
 .cv-displaymode-select {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+  border: 1px solid #7c3aed;
+  color: #fff;
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
   max-width: 190px;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
 }
-.cv-displaymode-select:hover { border-color: var(--accent); color: var(--accent); }
+.cv-displaymode-select:hover { filter: brightness(1.1); }
+.cv-displaymode-select option { background: var(--bg-surface, #13161e); color: var(--text-primary); font-weight: 500; }
 
 /* ══════════════════════════════════════════════════════════
    ON-SLIDE COMMENT DISPLAY: COLOR THEME POPOVER + SEE-THROUGH
    ══════════════════════════════════════════════════════════ */
 .cv-cdcolor-wrap { position: relative; }
 .cv-cdcolor-btn {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
+  background: linear-gradient(135deg, #f97316, #c2410c);
+  border: 1px solid #f97316;
+  color: #fff;
   border-radius: 6px;
   padding: 5px 10px;
   font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
 }
-.cv-cdcolor-btn:hover { border-color: var(--accent); color: var(--accent); }
-.cv-cdcolor-btn.active { background: rgba(99, 102, 241, 0.16); border-color: var(--accent); color: var(--accent); }
+.cv-cdcolor-btn:hover { filter: brightness(1.1); }
+.cv-cdcolor-btn.active { filter: brightness(1.15); box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.4); }
 .cv-cdcolor-swatch {
   width: 13px;
   height: 13px;
@@ -1245,16 +1592,115 @@
 
 /* Separate always-visible See-through dropdown, styled to match the display-mode select */
 .cv-cdalpha-select {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
+  background: linear-gradient(135deg, #14b8a6, #0f766e);
+  border: 1px solid #14b8a6;
+  color: #fff;
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
   max-width: 160px;
+  box-shadow: 0 2px 8px rgba(20, 184, 166, 0.3);
 }
-.cv-cdalpha-select:hover { border-color: var(--accent); color: var(--accent); }
+.cv-cdalpha-select:hover { filter: brightness(1.1); }
+.cv-cdalpha-select option { background: var(--bg-surface, #13161e); color: var(--text-primary); font-weight: 500; }
+
+/* Slides filter dropdown ("🗂 Slides ▾"), same shape as the Colors popover */
+.cv-slidefilter-wrap { position: relative; }
+.cv-slidefilter-btn {
+  background: linear-gradient(135deg, #e11d48, #9f1239);
+  border: 1px solid #e11d48;
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(225, 29, 72, 0.3);
+}
+.cv-slidefilter-btn:hover { filter: brightness(1.1); }
+.cv-slidefilter-btn.active { filter: brightness(1.15); box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.4); }
+.cv-slidefilter-count {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+/* "Canvas" button — opens the triage/compose screen for the non-screenshot pane */
+.cv-canvasbtn {
+  background: linear-gradient(135deg, #22c55e, #15803d);
+  border: 1px solid #22c55e;
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+.cv-canvasbtn:hover:not(:disabled) { filter: brightness(1.1); }
+.cv-canvasbtn:disabled { opacity: .45; cursor: not-allowed; filter: none; box-shadow: none; }
+
+.cv-canvas-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--bg-base, #0d0f14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cv-canvas-loading-box {
+  color: var(--text-secondary, #8b90a7);
+  font-size: 14px;
+  padding: 16px 24px;
+  border: 1px solid var(--border, #252a38);
+  border-radius: 10px;
+  background: var(--bg-surface, #13161e);
+}
+
+.cv-slidefilter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  background: var(--bg-surface, #13161e);
+  border: 1px solid var(--border-light, #2e3447);
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  z-index: 50;
+}
+.cv-slidefilter-item {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  text-align: left;
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cv-slidefilter-item:hover { background: var(--bg-hover, #1f2433); color: var(--text-primary); }
+.cv-slidefilter-item.selected { color: var(--accent, #6366f1); font-weight: 600; }
+.cv-slidefilter-sep {
+  height: 1px;
+  background: var(--border-light, #2e3447);
+  margin: 4px 2px;
+}
 
 /* ══════════════════════════════════════════════════════════
    "ADD COMMENT" POPUP CARD (opened by the 💬 Comment button)
@@ -1320,42 +1766,95 @@
 .cv-commentcard-textwrap {
   position: relative;
 }
-.cv-commentcard-mic {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 26px;
-  height: 26px;
+.cv-commentcard-btns {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.cv-commentcard-spacer { flex: 1; }
+
+/* ══════════════════════════════════════════════════════════
+   SHARED MIC / DICTATION BUTTON — used in the Add Comment popup,
+   the on-slide + side-panel comment edit box, and the sticky-note
+   edit toolbar. All three share this one visual language so dictation
+   looks and behaves the same everywhere in the compare view.
+   ══════════════════════════════════════════════════════════ */
+.cv-mic-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text-primary);
   font-size: 13px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   line-height: 1;
   padding: 0;
+  flex: none;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
 }
-.cv-commentcard-mic:hover {
+.cv-mic-btn-sm {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+.cv-mic-btn:hover {
   border-color: var(--accent);
+  transform: translateY(-1px);
 }
-.cv-commentcard-mic.listening {
-  background: #ff4444;
-  border-color: #ff4444;
+.cv-mic-icon {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+}
+.cv-mic-btn.listening {
+  background: linear-gradient(135deg, #ff5959, #e0294a);
+  border-color: #ff5959;
   color: #fff;
-  animation: cv-mic-pulse 1s infinite;
+  box-shadow: 0 0 0 4px rgba(255, 68, 68, 0.16);
+  animation: cv-mic-breathe 1.6s ease-in-out infinite;
 }
-@keyframes cv-mic-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+.cv-mic-btn.listening:hover { transform: none; }
+
+/* Concentric rings that ripple outward while recording — a much livelier
+   "listening" cue than a flat pulse, while staying cheap (pure CSS,
+   3 pseudo-elements-as-spans, no JS per frame). */
+.cv-mic-rings {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
 }
-.cv-commentcard-btns {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.cv-mic-rings span {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 89, 89, 0.55);
+  opacity: 0;
+  animation: cv-mic-ripple 1.8s ease-out infinite;
 }
+.cv-mic-rings span:nth-child(2) { animation-delay: 0.5s; }
+.cv-mic-rings span:nth-child(3) { animation-delay: 1s; }
+
+@keyframes cv-mic-ripple {
+  0%   { transform: scale(1);   opacity: 0.65; }
+  70%  { transform: scale(2.1); opacity: 0; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+@keyframes cv-mic-breathe {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(255, 68, 68, 0.16); }
+  50%      { box-shadow: 0 0 0 7px rgba(255, 68, 68, 0.06); }
+}
+
+/* Small spacer used to push Cancel/Save to the right while the mic button
+   stays pinned to the left of the same actions row. */
+.cv-ac-editactions-spacer { flex: 1; }
 
 /* ══════════════════════════════════════════════════════════
    COMMENT DISPLAY MODES (rendered under/around each item, per the
@@ -1481,6 +1980,8 @@
   padding: 4px 0;
   border-bottom: 1px dashed var(--border);
 }
+.cv-cd-hlrow > *:not(.cv-cd-hlnum) { flex: 1 1 auto; min-width: 0; }
+.cv-cd-hlrow .cv-ac-actions { width: 100%; }
 .cv-cd-hlrow:last-child { border-bottom: none; }
 .cv-cd-hlrow.resolved { opacity: 0.55; }
 .cv-cd-hlnum {
