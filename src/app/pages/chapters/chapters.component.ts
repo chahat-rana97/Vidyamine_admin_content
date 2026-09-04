@@ -282,7 +282,7 @@ export class ChaptersComponent implements OnInit {
       if (!ChaptersComponent.uiState) {
         this.filterBookOptions = [...this.books];
       }
-      this.lockBoardFilterForEditor();
+      this.lockFiltersForEditor();
       this.loadingLookups = false;
 
       if (this.formMode === 'edit' && this.editId) {
@@ -349,7 +349,7 @@ export class ChaptersComponent implements OnInit {
           .sort((a: any, b: any) => (Number(a.sequence_number) || 0) - (Number(b.sequence_number) || 0));
         this.buildBooksByName();
         this.filterBookOptions = [...this.books];
-        this.lockBoardFilterForEditor();
+        this.lockFiltersForEditor();
         this.loadingLookups = false;
 
         // Books just became available — route to whatever mode is
@@ -461,6 +461,17 @@ export class ChaptersComponent implements OnInit {
         this.chapters = list;
       }
 
+      // Editors only ever see chapters numbered EDITOR_CHAPTER_MIN..EDITOR_CHAPTER_MAX
+      // within their locked CBSE/Class 9/Science/Exploration book. Applied here
+      // (not just in the template) so it also governs the stats cards, the
+      // SEQUENCE filter dropdown options, and pagination counts.
+      if (this.isEditor) {
+        this.chapters = this.chapters.filter((c: any) => {
+          const n = Number(c.sequence);
+          return n >= this.EDITOR_CHAPTER_MIN && n <= this.EDITOR_CHAPTER_MAX;
+        });
+      }
+
       this.buildSequenceOptions();
       this.applyFilter(!preservePage);
       this.loading = false;
@@ -487,25 +498,62 @@ export class ChaptersComponent implements OnInit {
   });
 }
 
-  /** Editors are locked to the CBSE board — call after `boards` is populated to
-   *  pin the filter and pre-populate the cascading class/subject/book options. */
-  private lockBoardFilterForEditor() {
+  /** Editors are locked to a single Board/Class/Subject/Book combo — CBSE /
+   *  Class 9 / Science / Exploration — and, within that book, to chapters
+   *  numbered EDITOR_CHAPTER_MIN..EDITOR_CHAPTER_MAX (see the filter in
+   *  load() below). Call after `boards` is populated; re-pins all four
+   *  cascading filters and their option lists. The matching <select>s are
+   *  also [disabled]="isEditor" in the template, and each onFilter*Change()
+   *  handler below re-calls this if isEditor, guarding against any
+   *  programmatic/devtools change to the (disabled) controls. */
+  private readonly EDITOR_CHAPTER_MIN = 4;
+  private readonly EDITOR_CHAPTER_MAX = 13;
+
+  private lockFiltersForEditor() {
     if (!this.isEditor || !this.boards.length) return;
-    const cbse = this.boards.find(b =>
+
+    const board = this.boards.find(b =>
       String(b.code || '').toUpperCase() === 'CBSE' ||
       String(b.name || '').toUpperCase().includes('CBSE')
     );
-    if (!cbse) return;
-    this.filterBoardId = cbse.id;
+    if (!board) return;
+    this.filterBoardId = board.id;
     this.filterClassOptions = this.classesForBoard(this.filterBoardId);
-    this.filterBookOptions = this.booksFor(this.filterBoardId, '', '');
+
+    const klass = this.filterClassOptions.find(c =>
+      Number(c.class_number) === 9 || String(c.name || '').toUpperCase().includes('CLASS 9')
+    );
+    if (!klass) {
+      this.filterBookOptions = this.booksFor(this.filterBoardId, '', '');
+      return;
+    }
+    this.filterClassId = klass.id;
+    this.filterSubjectOptions = this.subjectsForClass(this.filterClassId);
+
+    const subject = this.filterSubjectOptions.find(s => {
+      const name = String(s.name || '').trim().toUpperCase();
+      // Exact match on "Science" — must NOT also match "Social Science".
+      return name === 'SCIENCE';
+    });
+    if (!subject) {
+      this.filterBookOptions = this.booksFor(this.filterBoardId, this.filterClassId, '');
+      return;
+    }
+    this.filterSubjectId = subject.id;
+    this.filterBookOptions = this.booksFor(this.filterBoardId, this.filterClassId, this.filterSubjectId);
+
+    const book = this.filterBookOptions.find(b =>
+      String(b.name || '').toUpperCase().includes('EXPLORATION')
+    );
+    if (book) this.filterBookId = book.id;
   }
 
   onFilterBoardChange() {
     if (this.isEditor) {
-      // Board filter is locked for editors — the <select> is also disabled
-      // in the template, but this guards against any programmatic change.
-      this.lockBoardFilterForEditor();
+      // Board/class/subject/book are all locked for editors — the <select>s
+      // are also disabled in the template, but this guards against any
+      // programmatic change.
+      this.lockFiltersForEditor();
       return;
     }
     this.filterClassOptions = this.classesForBoard(this.filterBoardId);
@@ -519,6 +567,10 @@ export class ChaptersComponent implements OnInit {
   }
 
   onFilterClassChange() {
+    if (this.isEditor) {
+      this.lockFiltersForEditor();
+      return;
+    }
     this.filterSubjectOptions = this.subjectsForClass(this.filterClassId);
     this.filterSubjectId = '';
     this.filterBookId = '';
@@ -528,6 +580,10 @@ export class ChaptersComponent implements OnInit {
   }
 
   onFilterSubjectChange() {
+    if (this.isEditor) {
+      this.lockFiltersForEditor();
+      return;
+    }
     this.filterBookId = '';
     this.filterBookOptions = this.booksFor(this.filterBoardId, this.filterClassId, this.filterSubjectId);
     this.filterSequence = '';
@@ -535,6 +591,10 @@ export class ChaptersComponent implements OnInit {
   }
 
   onFilterChange() {
+    if (this.isEditor) {
+      this.lockFiltersForEditor();
+      return;
+    }
     this.filterSequence = '';
     this.load();
   }
@@ -555,7 +615,7 @@ export class ChaptersComponent implements OnInit {
     this.filterSubjectOptions = [];
     this.filterBookOptions = [...this.books];
     ChaptersComponent.uiState = null;
-    this.lockBoardFilterForEditor(); // re-pin to CBSE immediately if editor
+    this.lockFiltersForEditor(); // re-pin board/class/subject/book immediately if editor
     this.load();
   }
 

@@ -60,7 +60,13 @@
 
     <div class="filter-field filter-field--sm">
       <label>CLASS</label>
-      <select class="filter-select" [(ngModel)]="filterClassId" (ngModelChange)="onFilterClassChange()">
+      <select
+        class="filter-select"
+        [(ngModel)]="filterClassId"
+        (ngModelChange)="onFilterClassChange()"
+        [disabled]="isEditor"
+        [title]="isEditor ? 'Locked to Class 9' : ''"
+      >
         <option value="">All Classes</option>
         <option *ngFor="let c of filterClassOptions" [value]="c.id">{{ classOptionLabel(c) }}</option>
       </select>
@@ -68,7 +74,13 @@
 
     <div class="filter-field filter-field--sm">
       <label>SUBJECT</label>
-      <select class="filter-select" [(ngModel)]="filterSubjectId" (ngModelChange)="onFilterSubjectChange()">
+      <select
+        class="filter-select"
+        [(ngModel)]="filterSubjectId"
+        (ngModelChange)="onFilterSubjectChange()"
+        [disabled]="isEditor"
+        [title]="isEditor ? 'Locked to Science' : ''"
+      >
         <option value="">All Subjects</option>
         <option *ngFor="let s of filterSubjectOptions" [value]="s.id">{{ s.name }}</option>
       </select>
@@ -76,7 +88,13 @@
 
     <div class="filter-field filter-field--book-sm">
       <label>BOOK</label>
-      <select class="filter-select" [(ngModel)]="filterBookId" (ngModelChange)="onFilterChange()">
+      <select
+        class="filter-select"
+        [(ngModel)]="filterBookId"
+        (ngModelChange)="onFilterChange()"
+        [disabled]="isEditor"
+        [title]="isEditor ? 'Locked to Exploration' : ''"
+      >
         <option value="">All Books</option>
         <option *ngFor="let b of filterBookOptions" [value]="b.id">{{ b.name }} ({{ b.code }})</option>
       </select>
